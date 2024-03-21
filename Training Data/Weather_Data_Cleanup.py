@@ -46,4 +46,6 @@ weather = weather.dropna()
 
 # Exporting my training data
 
+print("This is a test of my github saving")
+
 weather.to_csv("Training Data.csv", index=False)
