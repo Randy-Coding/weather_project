@@ -44,8 +44,6 @@ weather["target_temp"] = weather.shift(-4)["temp"]
 # Cleaning up the data by getting rid of all rows with NaN
 weather = weather.dropna()
 
-# Exporting my training data
-
-print("This is a test of my github saving")
+print ("Hello")
 
 weather.to_csv("Training Data.csv", index=False)
