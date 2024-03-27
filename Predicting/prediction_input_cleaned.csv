@@ -1,2 +1,0 @@
-time,temp,wind_spd,wind_dir,solar,temp_15min_ago,temp_30min_ago,temp_45min_ago,temp_60min_ago,temp_rolling_mean,temp_rolling_std,hour_sin,hour_cos,month_sin,year,month,day,hour,target_temp
-2024-03-10 15:00:00,48.2,3.5,294.5,240.2,48.56,50.9,49.64,50.18,48.05,2.87,-0.7071067811865471,-0.7071067811865479,1.0,2024,3,10,15,41.36
