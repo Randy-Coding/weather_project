@@ -18,10 +18,8 @@ def predict_temp(current_conditions, models_directory="Trained_Models"):
     - The predicted temperature an hour into the future.
     """
     # Extract date and time
-    date_time = pd.to_datetime(current_conditions["time"])
-    hour = date_time.hour
-    month = date_time.month
-
+    hour = current_conditions["hour"]
+    month = current_conditions["month"]
     # Select and load the appropriate model
     model_filename = f"model_{hour}_{month}.pkl"
     model_path = os.path.join(models_directory, model_filename)
@@ -30,10 +28,7 @@ def predict_temp(current_conditions, models_directory="Trained_Models"):
 
     model = joblib.load(model_path)
 
-    # Prepare the input for prediction
-    # Ensure you exclude 'date_time' from the input features
-    input_features = {k: [v] for k, v in current_conditions.items() if k != "date_time"}
-    input_df = pd.DataFrame(input_features)
+    input_df = pd.DataFrame([current_conditions])
 
     # Predict the future temperature
     predicted_temp = model.predict(input_df)[0]
@@ -42,11 +37,12 @@ def predict_temp(current_conditions, models_directory="Trained_Models"):
 
 
 current_conditions = {
-    "time": "2024-03-10 14:00:00",  # Example date and time
-    "temp": 25,
-    "wind_dir": 180,
-    "wind_spd": 5,
-    "solar": 300,
+    "temp": 41.9,
+    "wind_spd": 2.2,
+    "wind_dir": 49.3,
+    "solar": 342.7,
+    "hour": 10,
+    "month": 3,
 }
 
 
