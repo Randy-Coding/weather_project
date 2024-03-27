@@ -5,7 +5,9 @@ import os
 input_csv_path = "Training_Input.csv"
 
 # Replace this with the directory where you want to save the split CSV files
-output_directory = "CSV_Collection"
+output_directory = (
+    r"C:\Users\Kage\Documents\GitHub\weather_project\Train_And_Test\CSV_Collection"
+)
 
 # Ensure the output directory exists
 os.makedirs(output_directory, exist_ok=True)
@@ -21,6 +23,9 @@ data["temp"] = round(((data["temp"] * 9 / 5) + 32), 2)
 data["hour"] = data["time"].dt.hour
 data["month"] = data["time"].dt.month
 data["target_temp"] = data["temp"].shift(-4)
+data["target_wind_spd"] = data["wind_spd"].shift(-4)
+data["target_wind_dir"] = data["wind_dir"].shift(-4)
+data["target_solar"] = data["solar"].shift(-4)
 data = data.dropna()
 
 # Loop through all hours and months and split the data accordingly
