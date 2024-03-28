@@ -31,29 +31,30 @@ first_column = [
 
 # Data for the second column
 second_column = [
-    27.04,
-    26.28,
-    25.88,
-    25.2,
-    24.87,
-    26.7,
-    29.32,
-    30.38,
-    32.22,
-    34.0,
-    34.98,
-    35.62,
-    36.35,
-    37.36,
-    37.0,
-    35.75,
-    33.77,
-    32.49,
-    32.06,
-    31.34,
-    30.96,
-    30.71,
-    31.02,
+    31.28,
+    30.94,
+    29.2,
+    28.4,
+    27.29,
+    26.05,
+    27.51,
+    32.7,
+    34.62,
+    36.24,
+    39.0,
+    40.55,
+    42.89,
+    45.18,
+    41.99,
+    43.01,
+    41.06,
+    37.64,
+    35.56,
+    35.83,
+    35.02,
+    34.07,
+    33.82,
+    34.1,
 ]
 
 # Check if the lengths of columns are equal, if not, pad the shorter column with NaN
@@ -94,6 +95,23 @@ plt.ylim(-20, 70)  # For Y-axis, example range from -100% to 100%
 
 # Adding a grid for better readability
 plt.grid(True)
+
+# Display the plot
+plt.show()
+
+# Plot the first column as a line
+plt.plot(df["First Column"], label="First Column")
+
+# Plot the second column as a line
+plt.plot(df["Second Column"], label="Second Column")
+
+# Add labels and title to the plot
+plt.xlabel("Index")
+plt.ylabel("Value")
+plt.title("Data Visualization")
+
+# Add a legend to the plot
+plt.legend()
 
 # Display the plot
 plt.show()

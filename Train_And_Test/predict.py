@@ -43,7 +43,10 @@ def predict_temp(
         forecast = model.predict(input_df)[0]
         predicted_temp = forecast[0]
         predicted_temps.append(round((predicted_temp), 2))
-        current_conditions["temp", "wind_spd", "wind_dir", "solar"] = forecast
+        current_conditions["temp"] = forecast[0]
+        current_conditions["wind_spd"] = forecast[1]
+        current_conditions["wind_dir"] = forecast[2]
+        current_conditions["solar"] = forecast[3]
 
         # Update the hour for the next prediction, rolling over to the next day if needed
         hour = (hour + 1) % 24
@@ -52,14 +55,14 @@ def predict_temp(
 
 
 current_conditions = {
-    "temp": 27.86,
-    "wind_spd": 1.1,
-    "wind_dir": 302.6,
+    "temp": 29.84,
+    "wind_spd": 1.6,
+    "wind_dir": 316,
     "solar": -1.9,
-    "hour": 1,
+    "hour": 0,
     "month": 3,
 }
-hours_into_future = 23
+hours_into_future = 24
 future_temp = predict_temp(current_conditions, hours_into_future)
 print(
     f"Predicted temperature {hours_into_future} hours into the future:\n {future_temp}"

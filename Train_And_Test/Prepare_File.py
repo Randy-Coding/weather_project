@@ -1,18 +1,24 @@
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import MultiOutputRegressor
+from catboost import CatBoostRegressor
+from sklearn.model_selection import TimeSeriesSplit
+
+# import linear regression
+from sklearn.linear_model import LinearRegression
+
+# import random forest
+from sklearn.ensemble import RandomForestRegressor
 import numpy as np
 import pandas as pd
 import os
 import joblib
 
 
-def train_models_with_cv(data_directory, output_directory):
-    n_splits = 5  # Number of splits for cross-validation
+def train_models(data_directory, output_directory):
+    # Define the number of splits for cross-validation
+    n_splits = 5
     tscv = TimeSeriesSplit(n_splits=n_splits)
-    total_average_mae = []
-    total_average_mse = []
 
     for hour in range(24):
         for month in range(1, 13):
@@ -39,28 +45,19 @@ def train_models_with_cv(data_directory, output_directory):
                     ]
                 ]
 
-                # Wrap the GradientBoostingRegressor with MultiOutputRegressor
-                model = MultiOutputRegressor(
-                    GradientBoostingRegressor(
-                        n_estimators=100, max_depth=5, learning_rate=0.1
-                    )
-                )
+                # Initialize accumulators for MSE and MAE across folds
+                fold_mse = []
+                fold_mae = []
 
-                mse_scores = []
-                mae_scores = []
-
-                # Manually perform cross-validation
                 for train_index, test_index in tscv.split(X):
                     X_train, X_test = X.iloc[train_index], X.iloc[test_index]
                     y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
-                    # Train the model on this fold
+                    model = RandomForestRegressor(n_estimators=100)
                     model.fit(X_train, y_train)
 
-                    # Make predictions on the test set
                     y_pred = model.predict(X_test)
 
-                    # Calculate MSE and MAE for this fold
                     mse = mean_squared_error(
                         y_test, y_pred, multioutput="raw_values"
                     ).mean()
@@ -68,29 +65,22 @@ def train_models_with_cv(data_directory, output_directory):
                         y_test, y_pred, multioutput="raw_values"
                     ).mean()
 
-                    mse_scores.append(mse)
-                    mae_scores.append(mae)
+                    fold_mse.append(mse)
+                    fold_mae.append(mae)
 
-                average_mse = np.mean(mse_scores)
-                average_mae = np.mean(mae_scores)
+                # Calculate the average MSE and MAE across all folds
+                avg_mse = np.mean(fold_mse)
+                avg_mae = np.mean(fold_mae)
 
                 print(
-                    f"Model for hour {hour}, month {month} - Average MSE: {average_mse}, Average MAE: {average_mae}"
+                    f"Model for hour {hour}, month {month} - Average MSE: {avg_mse}, Average MAE: {avg_mae}"
                 )
 
-                total_average_mse.append(average_mse)
-                total_average_mae.append(average_mae)
-
-                # Train the model on the entire dataset after evaluation
+                # Optionally, you can re-train the model on the entire dataset
                 model.fit(X, y)
-
-                # Save the model
+                # Save the re-trained model
                 model_filename = f"model_{hour}_{month}.pkl"
                 joblib.dump(model, os.path.join(output_directory, model_filename))
-
-    # Print overall averages
-    print(f"Overall Average MAE: {np.mean(total_average_mae)}")
-    print(f"Overall Average MSE: {np.mean(total_average_mse)}")
 
 
 # Directory paths
@@ -101,4 +91,4 @@ output_directory = "Trained_Models"
 os.makedirs(output_directory, exist_ok=True)
 
 # Call the function
-train_models_with_cv(data_directory, output_directory)
+train_models(data_directory, output_directory)
