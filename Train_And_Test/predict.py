@@ -1,86 +1,90 @@
 import pandas as pd
 import os
-import tensorflow as tf  # Import TensorFlow
-from tensorflow.keras.models import load_model
-from keras.models import load_model
-from keras.losses import MeanSquaredError
-from tensorflow.keras.models import load_model
-from tensorflow.keras.losses import MeanSquaredError
+import joblib
+from datetime import datetime, timedelta
 
 
-def predict_temp_nn(
-    current_conditions, hours_into_future=1, models_directory="Trained_Models"
-):
+def update_forecast(models_directory="Trained_Models", csv_path="weather_data.csv"):
     """
-    Predicts the temperature for a few hours into the future based on current conditions,
-    using the appropriate neural network model for the given hour and month.
+    Reads the ever-updating CSV, uses the data up to the current available hour for predictions,
+    and dynamically updates future forecasts based on new and predicted data for a single day.
 
     Parameters:
-    - current_conditions: A dictionary including 'temp', 'wind_dir', 'wind_spd', 'solar', 'hour', and 'month'.
-    - hours_into_future: The number of hours into the future to predict.
-    - models_directory: The directory where the neural network models are saved.
-
-    Returns:
-    - A list of predicted temperatures for each hour into the future.
+    - models_directory: The directory where the models are saved.
+    - csv_path: Path to the CSV file with weather measurements.
     """
-    predicted_temps = []
-    hour = current_conditions["hour"]
-    month = current_conditions["month"]
+    forecasts = []  # Initial forecast list
 
-    for _ in range(hours_into_future):
-        # Determine the filename for the model corresponding to the current hour and month
-        model_filename = (
-            f"rnn_model_{hour}_{month}.h5"  # Adjusted for TensorFlow SavedModel format
-        )
+    data = pd.read_csv(csv_path)
+    data["time"] = pd.to_datetime(data["time"])  # Convert time column to datetime
+
+    start_time = data["time"].min()  # Get the start time for the day's predictions
+    end_time = start_time.replace(
+        hour=23, minute=0, second=0, microsecond=0
+    )  # End time is always 23:00 of the same day
+
+    current_time = start_time
+
+    while current_time <= end_time:
+        # Check if data for the current time exists or if we need to use forecasted data
+        if current_time in data["time"].values:
+            closest_time = data[data["time"] == current_time].iloc[-1]
+        else:
+            closest_time = forecasts[
+                -1
+            ]  # Use the last forecasted data if no actual data is available
+
+        month = current_time.month
+        hour = current_time.hour
+
+        model_filename = f"model_{hour}_{month}.pkl"
         model_path = os.path.join(models_directory, model_filename)
 
-        # Check if the model exists; if not, raise an error
         if not os.path.exists(model_path):
             raise FileNotFoundError(
                 f"No model found for hour {hour} and month {month}."
             )
 
-        # Load the TensorFlow/Keras model
+        model = joblib.load(model_path)
 
-        model = load_model(model_path)
-        # Prepare the input data in the shape expected by the model
-        # Assuming the model expects a numpy array of shape [samples, time steps, features]
-        input_features = pd.DataFrame(
-            [current_conditions], columns=["temp", "wind_spd", "wind_dir", "solar"]
-        )
-        input_features = input_features.values.reshape(
-            (1, 1, input_features.shape[1])
-        )  # Reshape for the RNN
+        # Prepare the input for prediction
+        feature_names = [
+            "temp",
+            "wind_spd",
+            "wind_dir",
+            "solar",
+            "hour",
+            "month",
+        ]  # Assuming these are the features your model was trained on
+        # Assuming closest_time is a Series with the latest available data
+        input_features = {feature: [closest_time[feature]] for feature in feature_names}
+        input_df = pd.DataFrame.from_dict(input_features)
 
-        # Perform the prediction
-        forecast = model.predict(input_features)[0]
-        predicted_temp = forecast[0]
-        predicted_temps.append(round(predicted_temp, 2))
+        forecast = model.predict(input_df)[0]
 
-        # Assuming the model outputs predictions for "temp", "wind_spd", "wind_dir", "solar" in this exact order
-        current_conditions["temp"] = forecast[0]
-        current_conditions["wind_spd"] = forecast[1]
-        current_conditions["wind_dir"] = forecast[2]
-        current_conditions["solar"] = forecast[3]
+        # Append the forecast to the data DataFrame for use in future iterations
+        forecast_data = {
+            "time": current_time,
+            "temp": forecast[0],
+            "wind_spd": forecast[1],
+            "wind_dir": forecast[2],
+            "solar": forecast[3],
+            "hour": hour,
+            "month": month,
+        }
+        data = data._append(forecast_data, ignore_index=True)
+        forecasts.append(forecast_data)  # Store the forecast for output
 
-        # Update the hour for the next prediction, rolling over to the next day if needed
-        hour = (hour + 1) % 24
+        # Increment current_time by one hour for the next iteration
+        current_time += timedelta(hours=1)
 
+    # Extract only the predicted temperatures for the return value, if needed
+    predicted_temps = [round(forecast["temp"], 2) for forecast in forecasts]
     return predicted_temps
 
 
 # Example usage
-current_conditions = {
-    "temp": 29.84,
-    "wind_spd": 1.6,
-    "wind_dir": 316,
-    "solar": -1.9,
-    "hour": 0,
-    "month": 3,
-}
-hours_into_future = 24
 models_directory = "Trained_Models"
-future_temp = predict_temp_nn(current_conditions, hours_into_future, models_directory)
-print(
-    f"Predicted temperature {hours_into_future} hours into the future:\n {future_temp}"
-)
+csv_path = "processed.csv"
+forecast = update_forecast(models_directory, csv_path)
+print(f"Forecast for the day: {forecast}")
