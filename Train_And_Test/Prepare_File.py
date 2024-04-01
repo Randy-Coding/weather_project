@@ -85,9 +85,7 @@ def train_model(
             df[col] = pd.to_numeric(df[col], downcast="integer")
     p = d = q = range(0, 2)  # Define parameter space for SARIMAX orders
     pdq_combinations = list(itertools.product(p, d, q))
-    seasonal_pdq_combinations = [
-        (x[1], x[0], x[1], 96) for x in pdq_combinations
-    ]  # Example seasonal settings
+
 
     for target in target_columns:
         best_rmse = float("inf")
@@ -100,13 +98,12 @@ def train_model(
         exog_test = df_test[exog_columns] if exog_columns else None  # Corrected line
 
         for param in pdq_combinations:
-            for seasonal_param in seasonal_pdq_combinations:
                 try:
                     model = SARIMAX(
                         y_train,
                         exog=exog_train,
                         order=param,
-                        seasonal_order=seasonal_param,
+                        seasonal_order=(1, 1, 1, 96),
                         enforce_stationarity=False,
                         enforce_invertibility=False,
                     )
@@ -119,7 +116,7 @@ def train_model(
                     if rmse < best_rmse:
                         best_rmse = rmse
                         best_model = results
-                        best_params = {"order": param, "seasonal_order": seasonal_param}
+                        best_params = {"order": param}
 
                 except Exception as e:
                     print(f"An error occurred: {e}")
@@ -138,8 +135,8 @@ def train_model(
 
 
 # Directory paths
-data_directory = "Training_Input.csv"
-output_directory = "Trained_Models"
+data_directory = r"C:\Users\me\Documents\GitHub\weatherProject\Train_And_Test\Training_Input.csv"
+output_directory = r"C:\Users\me\Documents\GitHub\weatherProject\Train_And_Test\Trained_Models"
 
 # Ensure the output directory exists
 os.makedirs(output_directory, exist_ok=True)
