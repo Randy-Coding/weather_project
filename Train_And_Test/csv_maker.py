@@ -16,7 +16,7 @@ first_column = [
 ]
 
 # Data for the second column
-second_column = [34.72, 39.95, 42.29, 42.05, 45.63, 44.16, 45.67, 48.04, 50.04, 48.89]
+second_column = [44.11, 43.81, 43.22, 41.55, 39.68, 35.0, 34.82, 32.02, 28.92, 28.46]
 
 # Check if the lengths of columns are equal, if not, pad the shorter column with NaN
 length_difference = len(first_column) - len(second_column)

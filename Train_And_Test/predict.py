@@ -1,3 +1,5 @@
+# block warnings
+import warnings
 import pandas as pd
 import os
 import joblib
@@ -5,148 +7,104 @@ from datetime import datetime, timedelta
 import numpy as np
 
 
-def generate_features_for_prediction(historical_data):
-    """
-    Generates necessary features for a single prediction, given
-    the current weather conditions and a DataFrame of historical data
-    sorted in ascending order (oldest first).
+def generate_features(filepath="historical_data.csv"):
+    df = pd.read_csv(filepath)
 
-    :param historical_data: A DataFrame containing historical data to compute lagged and rolling features.
-    :return: A DataFrame row (as a single-row DataFrame) with all features required for prediction.
-    """
-    # Ensure the historical data is a DataFrame
+    # Assuming 'time' is a column in your CSV. Convert it to datetime if not already.
+    df["time"] = pd.to_datetime(df["time"])
+    df.set_index("time", inplace=True)
 
-    window_sizes = [
-        2,
-        3,
-        4,
-    ]  # Corresponding to 30, 45, and 60 minutes if data is recorded every 15 minutes
-    for window in window_sizes:
-        # Create rolling features
-        for window in window_sizes:
-            historical_data[f"temp_roll_mean_{window}"] = (
-                historical_data["temp"].rolling(window=window).mean()
-            )
-            historical_data[f"wind_spd_roll_mean_{window}"] = (
-                historical_data["wind_spd"].rolling(window=window).mean()
-            )
-            historical_data[f"wind_dir_roll_mean_{window}"] = (
-                historical_data["wind_dir"].rolling(window=window).mean()
-            )
-            historical_data[f"solar_roll_mean_{window}"] = (
-                historical_data["solar"].rolling(window=window).mean()
-            )
+    variables = [
+        "wind_spd",
+        "wind_dir",
+        "temp",
+        "solar",
+    ]  # Add or remove variables based on your CSV
 
-            historical_data[f"temp_roll_std_{window}"] = (
-                historical_data["temp"].rolling(window=window).std()
-            )
-            historical_data[f"wind_spd_roll_std_{window}"] = (
-                historical_data["wind_spd"].rolling(window=window).std()
-            )
-            historical_data[f"wind_dir_roll_std_{window}"] = (
-                historical_data["wind_dir"].rolling(window=window).std()
-            )
-            historical_data[f"solar_roll_std_{window}"] = (
-                historical_data["solar"].rolling(window=window).std()
-            )
+    for variable in variables:
+        for lag in [1, 2, 3, 4]:  # Assuming data is recorded every 15 minutes
+            df[f"{variable}_lag_{lag*15}min"] = df[variable].shift(lag)
 
-        # Create lagged features
-        for lag in range(1, 5):  # 1 to 4 steps back, covering 15 to 60 minutes
-            historical_data[f"temp_lag{lag}"] = historical_data["temp"].shift(lag)
-            historical_data[f"wind_spd_lag{lag}"] = historical_data["wind_spd"].shift(
-                lag
-            )
-            historical_data[f"wind_dir_lag{lag}"] = historical_data["wind_dir"].shift(
-                lag
-            )
-            historical_data[f"solar_lag{lag}"] = historical_data["solar"].shift(lag)
-        # Drop rows with NaN values created by shifting and rolling
+        df[f"{variable}_rolling_mean_60min"] = df[variable].rolling(window=4).mean()
+        df[f"{variable}_rolling_std_60min"] = df[variable].rolling(window=4).std()
 
-        historical_data["hour_sin"] = np.sin(2 * np.pi * historical_data["hour"] / 24)
-        historical_data["hour_cos"] = np.cos(2 * np.pi * historical_data["hour"] / 24)
-        historical_data["month_sin"] = np.sin(2 * np.pi * historical_data["month"] / 12)
-        historical_data["month_cos"] = np.cos(2 * np.pi * historical_data["month"] / 12)
-        historical_data.dropna(inplace=True)
-    # Make features_df the last row of historical_data
-    features_df = historical_data.iloc[-1:]
-    features_df = pd.DataFrame(features_df)
-    return features_df
+    if (
+        "hour_sin" not in df.columns
+        and "hour_cos" not in df.columns
+        and "month_sin" not in df.columns
+        and "month_cos" not in df.columns
+    ):
+        df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+        df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+        df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+        df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
+    df.dropna()
+    return df
 
 
 def predict_temp(models_directory="Trained_Models", csv_path="historical_data.csv"):
     forecasts = []
 
     historical_data = pd.read_csv(csv_path)
-    historical_data = pd.read_csv(csv_path)
     historical_data.rename(
         columns={
-            "TmStamp": "time",
-            "temp_2": "temp",
-            "speed_10": "wind_spd",
-            "dir_10": "wind_dir",
+            "TmStamp": "time",  # Ensure this matches your CSV column names
+            "temp_2": "temp",  # Adjust based on the column you're using for temperature
+            # Include other relevant columns as needed
         },
         inplace=True,
     )
-    historical_data.drop(["temp_10"], axis=1, inplace=True)
+    # translate temp to farenheit
     historical_data["time"] = pd.to_datetime(historical_data["time"])
-    historical_data["hour"] = historical_data["time"].dt.hour
-    historical_data["month"] = historical_data["time"].dt.month
-    historical_data["temp"] = historical_data["temp"] * 9 / 5 + 32
+    historical_data.set_index("time", inplace=True)  # Use 'time' as the DataFrame index
+    historical_data["hour"] = historical_data.index.hour
+    historical_data["month"] = historical_data.index.month
+    # Adjust the temperature conversion as necessary
 
-    start_time = historical_data["time"].iloc[-1] + timedelta(
+    start_time = historical_data.index[-1] + timedelta(
         hours=1
-    )  # Start from the next hour
-    end_time = start_time.replace(hour=23, minute=0, second=0, microsecond=0)
+    )  # Begin predictions from the next hour
+    end_time = start_time.replace(
+        hour=23, minute=0, second=0, microsecond=0
+    )  # Predict until the end of the day
 
     current_time = start_time
-
     while current_time <= end_time:
-        # Generate features for current prediction
-        features_df = generate_features_for_prediction(historical_data.copy())
+        hour_month_suffix = f"{current_time.hour}-{current_time.month}"
 
-        # Check if features_df is not empty and contains expected features
-        if not features_df.empty and "temp_roll_mean_2" in features_df.columns:
-            model_filename = f"model_{current_time.hour}_{current_time.month}.pkl"
-            model_path = os.path.join(models_directory, model_filename)
+        # Predict with ARIMA model for temperature
+        temp_model_path = os.path.join(
+            models_directory, f"HH-{hour_month_suffix}_temp.joblib"
+        )
+        if os.path.exists(temp_model_path):
+            model = joblib.load(temp_model_path)
+            forecast = model.get_forecast(steps=1)
+            forecast_mean_temp = forecast.predicted_mean.iloc[0]
+            forecasts.append(round(forecast_mean_temp, 2))
 
-            if os.path.exists(model_path):
-                model = joblib.load(model_path)
-                # Predict
-                forecast = model.predict(
-                    features_df.drop(["time"], axis=1, errors="ignore")
-                )
-                forecast_data = {
-                    "time": current_time,
-                    "temp": forecast[0][0],
-                    "wind_spd": forecast[0][1],
-                    "wind_dir": forecast[0][2],
-                    "solar": forecast[0][3],
-                    "hour": current_time.hour,
-                    "month": current_time.month,
-                }
-
-                forecasts.append(forecast_data)
-                # Append forecast to historical_data for next iteration
-                new_row = pd.DataFrame([forecast_data])
-                historical_data = pd.concat(
-                    [historical_data, new_row], ignore_index=True
-                )
-                historical_data["time"] = pd.to_datetime(historical_data["time"])
-            else:
-                print(f"Model not found for {current_time}. Skipping.")
+            # Update historical_data with the new temperature forecast for the next iteration
+            new_row = pd.Series({"temp": forecast_mean_temp}, name=current_time)
+            historical_data = historical_data._append(new_row)
         else:
-            print(f"No data available for prediction at {current_time}. Skipping.")
-            break  # Consider breaking if no data is available to avoid empty loops
+            print(f"Temperature model not found for time {current_time}.")
+
+        # Optionally predict solar radiation, without appending its forecasts to `forecasts` or `historical_data`
+        solar_model_path = os.path.join(
+            models_directory, f"HH-{hour_month_suffix}_solar.joblib"
+        )
+        if os.path.exists(solar_model_path):
+            model = joblib.load(solar_model_path)
+            forecast = model.get_forecast(steps=1)
+            forecast_mean_solar = forecast.predicted_mean.iloc[0]
+            # Here, we could do something with the solar prediction if needed but it's not appended to forecasts or historical_data
 
         current_time += timedelta(hours=1)
 
-    current_time += timedelta(hours=1)
-
-    predicted_temps = [round(f["temp"], 2) for f in forecasts]
-    return predicted_temps
+    return forecasts
 
 
 # Example usage
+warnings.filterwarnings("ignore")
 models_directory = "Trained_Models"
 csv_path = "historical_data.csv"
 historical_data = "historical_data.csv"
