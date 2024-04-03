@@ -14,6 +14,7 @@ from catboost import CatBoostRegressor
 from sklearn.model_selection import cross_val_score
 import os
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import GridSearchCV
 
 
 def preprocess_data(data_path):
@@ -26,52 +27,36 @@ def preprocess_data(data_path):
     Returns:
     - A DataFrame with the weather data preprocessed and ready for modeling.
     """
-    # Load the data
     weather = pd.read_csv(data_path)
-
-    # Interpolate missing values linearly
     weather["solar"] = weather["solar"].interpolate(method="linear")
     weather["temp"] = weather["temp"].interpolate(method="linear")
     weather["wind_spd"] = weather["wind_spd"].interpolate(method="linear")
     weather["wind_dir"] = weather["wind_dir"].interpolate(method="linear")
-
-    # Convert 'time' to datetime and temperatures to Fahrenheit
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
-
-    # Create lagged features for temperature every 15 minutes up to an hour
     for i, lag in enumerate(range(15, 61, 15), start=1):
         weather[f"temp_{lag}min_ago"] = weather["temp"].shift(i)
-
-    # Calculate rolling mean and standard deviation for temperature
     weather["temp_rolling_mean"] = round(weather["temp"].rolling(window=4).mean(), 2)
     weather["temp_rolling_std"] = round(weather["temp"].rolling(window=4).std(), 2)
-
-    # Encode cyclical features for hour and month using sine and cosine
     weather["hour_sin"] = np.sin(2 * np.pi * weather["time"].dt.hour / 24)
     weather["hour_cos"] = np.cos(2 * np.pi * weather["time"].dt.hour / 24)
     weather["month_sin"] = np.sin(2 * np.pi * weather["time"].dt.month / 12)
     weather["month_cos"] = np.cos(2 * np.pi * weather["time"].dt.month / 12)
-
-    # Extract additional time components
+    weather["wind_dir_sin"] = np.sin(np.radians(weather["wind_dir"]))
+    weather["wind_dir_cos"] = np.cos(np.radians(weather["wind_dir"]))
     weather["year"] = weather["time"].dt.year
     weather["month"] = weather["time"].dt.month
     weather["day"] = weather["time"].dt.day
     weather["hour"] = weather["time"].dt.hour
-
-    # Set the target variable for temperature forecasting
     weather["target_temp"] = weather["temp"].shift(-4)
     weather["target_wind_spd"] = weather["wind_spd"].shift(-4)
     weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
     weather["target_solar"] = weather["solar"].shift(-4)
-
-    # Drop rows with NaN values resulting from shifting and rolling operations
     weather = weather.dropna()
-
     return weather
 
 
-def test_data(model, model_name: str, data_path, cv=5):
+def test_model(model_name: str, data_path, target_variable: str, cv=5):
 
     weather_data = preprocess_data(data_path)
 
@@ -82,7 +67,7 @@ def test_data(model, model_name: str, data_path, cv=5):
     training_data = weather_data.iloc[:split_index]
     testing_data = weather_data.iloc[split_index:]
 
-    # specify target and features for both training and testing sets
+    # Specify target and features for both training and testing sets
     X_train = training_data.drop(
         columns=[
             "target_temp",
@@ -92,7 +77,7 @@ def test_data(model, model_name: str, data_path, cv=5):
             "time",
         ]
     )
-    y_train = training_data["target_temp"]
+    y_train = training_data[target_variable]
     X_test = testing_data.drop(
         columns=[
             "target_temp",
@@ -102,24 +87,57 @@ def test_data(model, model_name: str, data_path, cv=5):
             "time",
         ]
     )
-    y_test = testing_data["target_temp"]
+    y_test = testing_data[target_variable]
 
-    # Define scoring metrics
-    scoring = {"MAE": "neg_mean_absolute_error", "MSE": "neg_mean_squared_error"}
+    if model_name == "CatBoost":
+        param_grid = {
+            "n_estimators": [100, 200, 300],
+            "learning_rate": [0.01, 0.05, 0.1],
+            "depth": [4, 6, 8],
+        }
+        model = CatBoostRegressor(random_state=42, verbose=False)
+    elif model_name == "GradientBoost":
+        param_grid = {
+            "n_estimators": [100, 200, 300],
+            "learning_rate": [0.01, 0.1, 0.2],
+            "max_depth": [3, 4, 5],
+        }
+        model = GradientBoostingRegressor(random_state=42)
 
-    # Perform cross-validation
-    print("performing cross validation")
-    tscv = TimeSeriesSplit(n_splits=cv)
-
-    cv_results = cross_validate(
-        model, X_train, y_train, cv=tscv, scoring=scoring, return_train_score=False
+    grid_search = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=TimeSeriesSplit(n_splits=5),
+        scoring="neg_mean_squared_error",
+        verbose=2,
     )
+
+    print(f"Performing grid search for {model_name} targeting {target_variable}")
+    grid_search.fit(X_train, y_train)
+
+    print("Best parameters found:", grid_search.best_params_)
+    best_model = grid_search.best_estimator_
+
+    y_pred = best_model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+
+    print(f"\nTest Set Results for: {model_name}")
+    print(f"Mean Absolute Error (MAE): {mae}")
+    print(f"Mean Squared Error (MSE): {mse}")
+    print(f"Root Mean Squared Error (RMSE): {rmse}")
+
+    # Save the best model
+    model_save_path = os.path.join(
+        "Model_Directory", f"best_{model_name}_{target_variable}.joblib"
+    )
+    dump(best_model, model_save_path)
+    print(f"Best {model_name} model saved to {model_save_path}")
 
     # Compute RMSE scores from MSE scores
     cv_rmse_scores = np.sqrt(-cv_results["test_MSE"])
-
-    # Convert MAE scores to positive values
-    cv_mae_scores = -cv_results["test_MAE"]
+    cv_mae_scores = -cv_results["test_MAE"]  # Convert MAE scores to positive values
 
     print(f"\nCross-Validation Results for: {model_name}")
     print(f"MAE scores: {cv_mae_scores}")
@@ -133,14 +151,11 @@ def test_data(model, model_name: str, data_path, cv=5):
     y_pred = model.predict(X_test)
 
     print(f"\n\nTest Set Results for: {model_name}")
-    # Calculate MAE
-    mae = mean_absolute_error(y_test, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)  # Calculate MAE
+    mse = mean_squared_error(y_test, y_pred)  # Calculate MSE
+    rmse = np.sqrt(mse)  # Calculate RMSE
     print(f"Mean Absolute Error (MAE): {mae}")
-    # Calculate MSE
-    mse = mean_squared_error(y_test, y_pred)
     print(f"Mean Squared Error (MSE): {mse}")
-    # Calculate RMSE
-    rmse = np.sqrt(mse)
     print(f"Root Mean Squared Error (RMSE): {rmse}")
 
     full_data = pd.concat([X_train, X_test])
@@ -150,21 +165,15 @@ def test_data(model, model_name: str, data_path, cv=5):
     model.fit(full_data, full_targets)
 
     # Save the fully trained model
-    model_save_path = os.path.join("Model_Directory", f"{model_name}.joblib")
+    model_save_path = os.path.join(
+        "Model_Directory", f"{model_name}_{target_variable}.joblib"
+    )
     dump(model, model_save_path)
     print(f"Model saved to {model_save_path}")
-    plt.figure(figsize=(10, 6))
-    plt.scatter(y_test, y_pred, alpha=0.5)
-    plt.xlabel("Actual")
-    plt.ylabel("Predicted")
-    plt.title("Actual vs. Predicted Temperature")
-    plt.show()
 
 
 # make a gradient boosting model with some parameters
 gradient_booster = GradientBoostingRegressor(n_estimators=200, random_state=42)
 cat_booster = CatBoostRegressor(n_estimators=200, random_state=42, verbose=False)
-random_forest = RandomForestRegressor(n_estimators=200, random_state=42)
-test_data(cat_booster, "CatBoost", "Training_input.csv")
-test_data(gradient_booster, "Gradient Boosting", "Training_input.csv")
-test_data(random_forest, "Random Forest", "Training_input.csv")
+test_model("CatBoost", "Training_input.csv", "target_wind_dir")
+test_model("GradientBoost", "Training_input.csv", "target_wind_dir")

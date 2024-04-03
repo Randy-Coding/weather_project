@@ -7,7 +7,7 @@ import numpy as np
 from joblib import load
 
 
-def preprocess_data(data_path):
+def preprocess_data(data_path, target):
     """
     Preprocesses the weather data for time series forecasting.
 
@@ -52,16 +52,21 @@ def preprocess_data(data_path):
         (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
     ]
     # put all of the temp values in a list
-    temps = weather_for_printing["temp"].tolist()
-    weather["temp"].iloc[50:] = np.NaN
-    return weather, temps
+    values = weather_for_printing[target].tolist()
+    weather["solar"].iloc[50:] = np.NaN
+    return weather, values
 
 
-def predict_temp(models_directory="Model_Directory", csv_path="historical_data.csv"):
+def predict_values(
+    models_directory="Model_Directory",
+    csv_path="historical_data.csv",
+    model_name="CatBoost_target_temp.joblib",
+    target="solar",
+):
 
-    historical_data = preprocess_data(csv_path)[0]
-    real_temps = preprocess_data(csv_path)[1]
-    model_path = os.path.join(models_directory, "CatBoost.joblib")
+    historical_data = preprocess_data(csv_path, target)[0]
+    real_values = preprocess_data(csv_path, target)[1]
+    model_path = os.path.join(models_directory, model_name)
     model = load(model_path)
     historical_data = historical_data[
         (historical_data["time"].dt.minute == 0)
@@ -77,18 +82,24 @@ def predict_temp(models_directory="Model_Directory", csv_path="historical_data.c
             "target_solar",
         ]
     )
-    for i in historical_data[historical_data["temp"].isnull()].index:
+    for i in historical_data[historical_data[target].isnull()].index:
         feature_vector = features.loc[[i - 1]]
         temp_pred = model.predict(feature_vector)[0]
-        historical_data.at[i, "temp"] = temp_pred
-        features.at[i, "temp"] = temp_pred
+        historical_data.at[i, target] = temp_pred
+        features.at[i, target] = temp_pred
     # put all of the temp values in a list
-    pred_temps = historical_data["temp"].tolist()
-    return historical_data, real_temps, pred_temps
+    pred_temps = historical_data[target].tolist()
+    return historical_data, real_values, pred_temps
+
+
+def predict_master(models_directory="Model_Directory", csv_path="historical_data.csv"):
+
+    model_name = os.path.join("CatBoost_target_solar.joblib")
+    return predict_values(models_directory, csv_path, model_name, "solar")
 
 
 # Example usage
 warnings.filterwarnings("ignore")
 historical_data = "historical_data.csv"
-print(predict_temp(models_directory="Model_Directory", csv_path=historical_data)[1])
-print(predict_temp(models_directory="Model_Directory", csv_path=historical_data)[2])
+print(predict_master(models_directory="Model_Directory", csv_path=historical_data)[1])
+print(predict_master(models_directory="Model_Directory", csv_path=historical_data)[2])
