@@ -5,6 +5,8 @@ from sklearn.ensemble import (
     RandomForestRegressor,
     GradientBoostingRegressor,
 )
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, train_test_split
+from xgboost import XGBRegressor
 import joblib
 from joblib import dump
 from sklearn.model_selection import cross_validate
@@ -13,8 +15,7 @@ import numpy as np
 from catboost import CatBoostRegressor
 from sklearn.model_selection import cross_val_score
 import os
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import ParameterGrid
 
 
 def preprocess_data(data_path):
@@ -34,8 +35,15 @@ def preprocess_data(data_path):
     weather["wind_dir"] = weather["wind_dir"].interpolate(method="linear")
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
-    for i, lag in enumerate(range(15, 61, 15), start=1):
-        weather[f"temp_{lag}min_ago"] = weather["temp"].shift(i)
+    lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
+    lagged_cols = []
+    for lag in lags:
+        for col in ["wind_dir", "temp", "wind_spd", "solar"]:
+            # Shift the column and rename appropriately
+            shifted_col = weather[col].shift(lag // 15).rename(f"{col}_{lag}min_ago")
+            lagged_cols.append(shifted_col)
+    # Concatenate all lagged columns alongside the original DataFrame
+    weather = pd.concat([weather] + lagged_cols, axis=1)
     weather["temp_rolling_mean"] = round(weather["temp"].rolling(window=4).mean(), 2)
     weather["temp_rolling_std"] = round(weather["temp"].rolling(window=4).std(), 2)
     weather["hour_sin"] = np.sin(2 * np.pi * weather["time"].dt.hour / 24)
@@ -53,7 +61,8 @@ def preprocess_data(data_path):
     weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
     weather["target_solar"] = weather["solar"].shift(-4)
     weather = weather.dropna()
-    return weather
+    return_val = weather.copy()
+    return return_val
 
 
 def test_model(model_name: str, data_path, target_variable: str, cv=5):
@@ -96,29 +105,66 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
             "depth": [4, 6, 8],
         }
         model = CatBoostRegressor(random_state=42, verbose=False)
-    elif model_name == "GradientBoost":
+    elif model_name == "XGBoost":
+        # Define the parameter grid for XGBoost
         param_grid = {
-            "n_estimators": [100, 200, 300],
-            "learning_rate": [0.01, 0.1, 0.2],
+            "n_estimators": [100, 500, 1000],
+            "learning_rate": [0.01, 0.05, 0.1],
             "max_depth": [3, 4, 5],
+            "subsample": [0.7, 0.8, 0.9],
+            "colsample_bytree": [0.7, 0.8, 0.9],
         }
-        model = GradientBoostingRegressor(random_state=42)
+        model = XGBRegressor(random_state=42, verbosity=0, early_stopping_rounds=10)
 
-    grid_search = GridSearchCV(
-        estimator=model,
-        param_grid=param_grid,
-        cv=TimeSeriesSplit(n_splits=5),
-        scoring="neg_mean_squared_error",
-        verbose=2,
-    )
+        # Split the training data for early stopping validation
+        X_train_part, X_val, y_train_part, y_val = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=42
+        )
 
-    print(f"Performing grid search for {model_name} targeting {target_variable}")
-    grid_search.fit(X_train, y_train)
+        # Initialize variables to find the best model and parameters
+        lowest_rmse = np.inf
+        best_params = {}
 
-    print("Best parameters found:", grid_search.best_params_)
-    best_model = grid_search.best_estimator_
+        # Iterate over all combinations of parameters
+        for params in ParameterGrid(param_grid):
+            temp_model = model.set_params(**params)  # Set parameters
+            temp_model.fit(
+                X_train_part,
+                y_train_part,
+                eval_set=[(X_val, y_val)],
+                verbose=False,
+            )
 
-    y_pred = best_model.predict(X_test)
+            predictions = temp_model.predict(X_val)
+            rmse = np.sqrt(mean_squared_error(y_val, predictions))
+
+            if rmse < lowest_rmse:
+                lowest_rmse = rmse
+                best_model = temp_model
+                best_params = params
+            print(
+                f"Best parameters for XGBoost: {best_params} with RMSE: {lowest_rmse}"
+            )
+    else:
+        # Handle other models or throw an error
+        raise ValueError("Unsupported model name")
+
+    # For CatBoost and other models without early stopping, use GridSearchCV as before
+    if model_name != "XGBoost":
+        grid_search = GridSearchCV(
+            estimator=model,
+            param_grid=param_grid,
+            cv=TimeSeriesSplit(n_splits=5),
+            scoring="neg_mean_squared_error",
+            verbose=2,
+        )
+        grid_search.fit(X_train, y_train)
+        print("Best parameters found:", grid_search.best_params_)
+        best_model = grid_search.best_estimator_
+        # Predict and evaluate using best_model
+
+    model = best_model
+    y_pred = model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
@@ -128,24 +174,9 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     print(f"Mean Squared Error (MSE): {mse}")
     print(f"Root Mean Squared Error (RMSE): {rmse}")
 
-    # Save the best model
-    model_save_path = os.path.join(
-        "Model_Directory", f"best_{model_name}_{target_variable}.joblib"
-    )
-    dump(best_model, model_save_path)
-    print(f"Best {model_name} model saved to {model_save_path}")
-
-    # Compute RMSE scores from MSE scores
-    cv_rmse_scores = np.sqrt(-cv_results["test_MSE"])
-    cv_mae_scores = -cv_results["test_MAE"]  # Convert MAE scores to positive values
-
-    print(f"\nCross-Validation Results for: {model_name}")
-    print(f"MAE scores: {cv_mae_scores}")
-    print(f"Mean MAE: {cv_mae_scores.mean()}")
-    print(f"RMSE scores: {cv_rmse_scores}")
-    print(f"Mean RMSE: {cv_rmse_scores.mean()}")
-    print(f"Standard deviation (RMSE): {cv_rmse_scores.std()}")
-
+    if model_name == "XGBoost":
+        # Reconfigure the model without early_stopping_rounds for final full training
+        model.set_params(early_stopping_rounds=None)
     # Training the model on the full training data and evaluate on the test set
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -173,7 +204,11 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
 
 
 # make a gradient boosting model with some parameters
-gradient_booster = GradientBoostingRegressor(n_estimators=200, random_state=42)
-cat_booster = CatBoostRegressor(n_estimators=200, random_state=42, verbose=False)
+test_model("XGBoost", "Training_input.csv", "target_temp")
+test_model("CatBoost", "Training_input.csv", "target_temp")
+test_model("XGBoost", "Training_input.csv", "target_wind_spd")
+test_model("CatBoost", "Training_input.csv", "target_wind_spd")
+test_model("XGBoost", "Training_input.csv", "target_wind_dir")
 test_model("CatBoost", "Training_input.csv", "target_wind_dir")
-test_model("GradientBoost", "Training_input.csv", "target_wind_dir")
+test_model("XGBoost", "Training_input.csv", "target_solar")
+test_model("CatBoost", "Training_input.csv", "target_solar")
