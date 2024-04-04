@@ -1,4 +1,7 @@
 # block warnings
+import sys
+
+sys.path.append("..")
 import warnings
 import pandas as pd
 import os
@@ -7,7 +10,7 @@ import numpy as np
 from joblib import load
 
 
-def preprocess_data(data_path, target):
+def preprocess_data(data_path):
     """
     Preprocesses the weather data for time series forecasting.
 
@@ -57,33 +60,35 @@ def preprocess_data(data_path, target):
     weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
     weather["target_solar"] = weather["solar"].shift(-4)
 
-    weather_for_printing = weather.iloc[97:]
+    weather_for_printing = weather.iloc[96:]
     weather_for_printing = weather_for_printing[
         (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
     ]
     # make weather_for_printing equal the values after the 99th index
     weather = weather.dropna()
-    # put all of the temp values in a list
-    values = weather_for_printing[target].tolist()
-    weather = weather.iloc[57:]
+    actual_values_dict = {}
+
+    for target in ["temp", "wind_spd", "wind_dir", "solar"]:
+        # Dynamically create the list name
+        # Assign the target column values to a list and store it in the dictionary
+        actual_values_dict[target] = weather_for_printing[target].tolist()
+
     # reset index
     weather = weather.reset_index(drop=True)
-    weather[target].iloc[50:] = np.NaN
-    # print the values between 120 and 133
-    return weather, values
+    for target in ["temp", "wind_spd", "wind_dir", "solar"]:
+        weather[target].iloc[104:] = np.NaN
+    return weather, actual_values_dict
 
 
 def predict_values(
     models_directory="Model_Directory",
     csv_path="historical_data.csv",
-    model_name="CatBoost_target_temp.joblib",
-    target="temp",
+    model_type="CatBoost",
 ):
 
-    historical_data = preprocess_data(csv_path, target)[0]
-    real_values = preprocess_data(csv_path, target)[1]
-    model_path = os.path.join(models_directory, model_name)
-    model = load(model_path)
+    result = preprocess_data(csv_path)
+    historical_data = result[0]
+    real_values = result[1]
     historical_data = historical_data[
         (historical_data["time"].dt.minute == 0)
         & (historical_data["time"].dt.second == 0)
@@ -98,28 +103,38 @@ def predict_values(
             "target_solar",
         ]
     )
-    for i in historical_data[historical_data[target].isnull()].index:
-        feature_vector = features.loc[[i - 1]]
-        temp_pred = model.predict(feature_vector)[0]
-        historical_data.at[i, target] = temp_pred
-        features.at[i, target] = temp_pred
+    for i in historical_data[historical_data["temp"].isnull()].index:
+        for target in ["temp", "wind_spd", "wind_dir", "solar"]:
+            model_name = os.path.join(f"{model_type}_target_{target}.joblib")
+            model_path = os.path.join(models_directory, model_name)
+            model = load(model_path)
+            feature_vector = features.loc[[i - 1]]
+            value_pred = model.predict(feature_vector)[0]
+            historical_data.at[i, target] = value_pred
+            features.at[i, target] = value_pred
+
     # put all of the temp values in a list
-    pred_temps = historical_data[target].tolist()
-    return historical_data, real_values, pred_temps
+    pred_values = {}
+    historical_data = historical_data.iloc[14:]
+    for value in ["temp", "wind_spd", "wind_dir", "solar"]:
+        pred_values[value] = historical_data[value].tolist()
+    return historical_data, real_values, pred_values
 
 
 def predict_master(
-    models_directory="Model_Directory", csv_path="historical_data.csv", target="temp"
+    models_directory="Model_Directory", csv_path="Predict_Here/historical_data.csv"
 ):
 
-    model_name = os.path.join(f"RidgeRegression_target_{target}.joblib")
-    return predict_values(models_directory, csv_path, model_name, target)
+    model_name = os.path.join(f"CatBoost")
+    return predict_values(models_directory, csv_path, model_name)
 
 
 # Example usage
 warnings.filterwarnings("ignore")
 historical_data = "historical_data.csv"
 
-result = predict_master("Model_Directory", historical_data, "solar")
-print(result[1])
-print(result[2])
+result = predict_master("Model_Directory", historical_data)
+real_values = result[1]
+pred_values = result[2]
+print(real_values["wind_spd"])
+print(pred_values["wind_spd"])
