@@ -201,6 +201,12 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     )
     dump(model, model_save_path)
     print(f"Model saved to {model_save_path}")
+    plt.figure(figsize=(10, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5)
+    plt.xlabel("Actual")
+    plt.ylabel("Predicted")
+    plt.title("Actual vs. Predicted Temperature")
+    plt.show()
 
 
 # make a gradient boosting model with some parameters

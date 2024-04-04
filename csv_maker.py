@@ -3,11 +3,58 @@ import pandas as pd
 
 # Data for the first column
 first_column = [
-    462.9, 696.8, 743.1, 724.6, 649.1, 505.9, 330.6, 114.3, 5.1, -1.9, -1.8, -1.8, -1.8]
+    -1.7,
+    -1.5,
+    -1.7,
+    -1.6,
+    -1.7,
+    -1.5,
+    -0.4,
+    99.4,
+    250.5,
+    473.3,
+    605.9,
+    711.0,
+    778.4,
+    745.7,
+    677.9,
+    512.4,
+    331.5,
+    148.7,
+    5.6,
+    -2.2,
+    -2.0,
+    -1.9,
+    -2.1,
+    -1.9,
+]
 
 # Data for the second column
 second_column = [
-462.9, 696.8, 597.0821533203125, 546.0677490234375, 454.3128662109375, 437.3150329589844, 264.1799011230469, 62.420265197753906, -0.39554619789123535, -3.94468355178833, -4.737818717956543, -5.52502965927124, -4.131577014923096]
+    -1.7,
+    -1.5,
+    -1.7,
+    -1.6,
+    -1.7,
+    -1.5,
+    -0.4,
+    99.4,
+    250.5,
+    473.3,
+    605.9,
+    711.0,
+    778.4,
+    740.9418871239143,
+    667.4660443397331,
+    533.1665635546062,
+    370.3431519204944,
+    213.35000893162737,
+    75.2916321545415,
+    -38.52961992035648,
+    -103.33835944352018,
+    -116.45640683979013,
+    -89.40192715556145,
+]
 
 # Check if the lengths of columns are equal, if not, pad the shorter column with NaN
 length_difference = len(first_column) - len(second_column)
@@ -15,11 +62,17 @@ if length_difference > 0:
     second_column += [float("nan")] * length_difference
 elif length_difference < 0:
     first_column += [float("nan")] * abs(length_difference)
+# find the greatest difference between the two columns
+greatest_difference = 0
+for value in range(0, len(first_column)):
+    if abs(first_column[value] - second_column[value]) > greatest_difference:
+        greatest_difference = abs(first_column[value] - second_column[value])
+
 
 # Create a DataFrame with the data
 df = pd.DataFrame({"First Column": first_column, "Second Column": second_column})
 
-print(df)
+print(greatest_difference)
 
 import matplotlib.pyplot as plt
 

@@ -52,17 +52,24 @@ def preprocess_data(data_path, target):
     weather["month"] = weather["time"].dt.month
     weather["day"] = weather["time"].dt.day
     weather["hour"] = weather["time"].dt.hour
+    weather["target_temp"] = weather["temp"].shift(-4)
     weather["target_wind_spd"] = weather["wind_spd"].shift(-4)
     weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
     weather["target_solar"] = weather["solar"].shift(-4)
-    weather["target_temp"] = weather["temp"].shift(-4)
-    weather = weather.dropna()
-    weather_for_printing = weather[
+
+    weather_for_printing = weather.iloc[97:]
+    weather_for_printing = weather_for_printing[
         (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
     ]
+    # make weather_for_printing equal the values after the 99th index
+    weather = weather.dropna()
     # put all of the temp values in a list
     values = weather_for_printing[target].tolist()
-    weather["temp","wind_dir","wind_spd","solar"].iloc[8:] = np.NaN
+    weather = weather.iloc[57:]
+    # reset index
+    weather = weather.reset_index(drop=True)
+    weather[target].iloc[50:] = np.NaN
+    # print the values between 120 and 133
     return weather, values
 
 
@@ -70,13 +77,12 @@ def predict_values(
     models_directory="Model_Directory",
     csv_path="historical_data.csv",
     model_name="CatBoost_target_temp.joblib",
-    target="solar",
+    target="temp",
 ):
 
     historical_data = preprocess_data(csv_path, target)[0]
     real_values = preprocess_data(csv_path, target)[1]
     model_path = os.path.join(models_directory, model_name)
-    print(model_path)
     model = load(model_path)
     historical_data = historical_data[
         (historical_data["time"].dt.minute == 0)
@@ -102,14 +108,18 @@ def predict_values(
     return historical_data, real_values, pred_temps
 
 
-def predict_master(models_directory="Model_Directory", csv_path="historical_data.csv"):
+def predict_master(
+    models_directory="Model_Directory", csv_path="historical_data.csv", target="temp"
+):
 
-    model_name = os.path.join("XGBoost_target_solar.joblib")
-    return predict_values(models_directory, csv_path, model_name, "solar")
+    model_name = os.path.join(f"RidgeRegression_target_{target}.joblib")
+    return predict_values(models_directory, csv_path, model_name, target)
 
 
 # Example usage
 warnings.filterwarnings("ignore")
 historical_data = "historical_data.csv"
-print(predict_master(models_directory="Model_Directory", csv_path=historical_data)[1])
-print(predict_master(models_directory="Model_Directory", csv_path=historical_data)[2])
+
+result = predict_master("Model_Directory", historical_data, "solar")
+print(result[1])
+print(result[2])
