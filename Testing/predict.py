@@ -59,13 +59,15 @@ def preprocess_data(data_path):
     weather["target_wind_spd"] = weather["wind_spd"].shift(-4)
     weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
     weather["target_solar"] = weather["solar"].shift(-4)
-
     weather_for_printing = weather.iloc[96:]
     weather_for_printing = weather_for_printing[
         (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
     ]
     # make weather_for_printing equal the values after the 99th index
-    weather = weather.dropna()
+    #make weather equal only to values after row 40
+    weather = weather[40:]
+
+
     actual_values_dict = {}
 
     for target in ["temp", "wind_spd", "wind_dir", "solar"]:
@@ -80,6 +82,46 @@ def preprocess_data(data_path):
     return weather, actual_values_dict
 
 
+def update_features(features, historical_data):
+    """
+    Updates the feature set for the entire dataset with the latest historical values.
+    
+    Parameters:
+    - features: DataFrame containing the feature set.
+    - historical_data: DataFrame containing the historical data including latest predictions.
+    """
+    columns = ["temp", "wind_spd", "wind_dir", "solar"]
+    lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
+
+    # Update lagged features for the entire dataset
+    for lag in lags:
+        for col in columns:
+            # Calculate the shift amount based on the time interval (assuming 15min intervals)
+            shift_amount = lag // 15
+            features[f"{col}_{lag}min_ago"] = features[col].shift(shift_amount)
+
+    # Update rolling features for the entire dataset
+    features["temp_rolling_mean"] = round(features["temp"].rolling(window=4).mean(), 2)
+    features["temp_rolling_std"] = round(features["temp"].rolling(window=4).std(), 2)
+
+    # Update trigonometric transformations for hour and month
+    features["hour_sin"] = np.sin(2 * np.pi * historical_data["time"].dt.hour / 24)
+    features["hour_cos"] = np.cos(2 * np.pi * historical_data["time"].dt.hour / 24)
+    features["month_sin"] = np.sin(2 * np.pi * historical_data["time"].dt.month / 12)
+    features["month_cos"] = np.cos(2 * np.pi * historical_data["time"].dt.month / 12)
+
+    # Update wind direction transformations
+    features["wind_dir_sin"] = np.sin(np.radians(features["wind_dir"]))
+    features["wind_dir_cos"] = np.cos(np.radians(features["wind_dir"]))
+
+    # Update time components
+    features["year"] = historical_data["time"].dt.year
+    features["month"] = historical_data["time"].dt.month
+    features["day"] = historical_data["time"].dt.day
+    features["hour"] = historical_data["time"].dt.hour
+
+    
+
 def predict_values(
     models_directory="Model_Directory",
     csv_path="historical_data.csv",
@@ -93,7 +135,6 @@ def predict_values(
         (historical_data["time"].dt.minute == 0)
         & (historical_data["time"].dt.second == 0)
     ]
-    historical_data = historical_data.reset_index(drop=True)
     features = historical_data.drop(
         columns=[
             "time",
@@ -103,12 +144,16 @@ def predict_values(
             "target_solar",
         ]
     )
+    historical_data = historical_data.reset_index(drop=True)
+    features = features.reset_index(drop = True)
     for i in historical_data[historical_data["temp"].isnull()].index:
         for target in ["temp", "wind_spd", "wind_dir", "solar"]:
-            model_name = os.path.join(f"{model_type}_target_{target}.joblib")
+            model_name = (f"{model_type}_target_{target}.joblib")
             model_path = os.path.join(models_directory, model_name)
             model = load(model_path)
             feature_vector = features.loc[[i - 1]]
+            if pd.isnull(feature_vector["temp_15min_ago"].iloc[0]):
+                update_features(features,historical_data)
             value_pred = model.predict(feature_vector)[0]
             historical_data.at[i, target] = value_pred
             features.at[i, target] = value_pred
@@ -136,5 +181,8 @@ historical_data = "historical_data.csv"
 result = predict_master("Model_Directory", historical_data)
 real_values = result[1]
 pred_values = result[2]
-print(real_values["wind_spd"])
-print(pred_values["wind_spd"])
+print(real_values["temp"])
+print(pred_values["temp"])
+
+
+
