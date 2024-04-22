@@ -81,7 +81,7 @@ def preprocess_data(data_path):
 def update_features(features, historical_data):
     """
     Updates the feature set for the entire dataset with the latest historical values.
-    
+
     Parameters:
     - features: DataFrame containing the feature set.
     - historical_data: DataFrame containing the historical data including latest predictions.
@@ -116,7 +116,6 @@ def update_features(features, historical_data):
     features["day"] = historical_data["time"].dt.day
     features["hour"] = historical_data["time"].dt.hour
 
-    
 
 def predict_values(
     models_directory="Model_Directory",
@@ -124,31 +123,33 @@ def predict_values(
     model_type="CatBoost",
 ):
 
-
     result = preprocess_data(csv_path)
     historical_data = result[0]
     real_values = result[1]
-
 
     historical_data = historical_data[
         (historical_data["time"].dt.minute == 0)
         & (historical_data["time"].dt.second == 0)
     ]
-    
-    last_date = historical_data['time'].max().date()
-    final_datetime = datetime.strptime(f"{last_date} 23:45", '%Y-%m-%d %H:%M')
+
+    last_date = historical_data["time"].max().date()
+    final_datetime = datetime.strptime(f"{last_date} 23:45", "%Y-%m-%d %H:%M")
 
     # Calculate the number of 1-hour steps needed to reach final_time from the last timestamp
-    last_timestamp = historical_data['time'].max()
+    last_timestamp = historical_data["time"].max()
     delta = final_datetime - last_timestamp
     steps_needed = int(delta.total_seconds() / 3600)  # 3600 seconds in 1 hour
 
     # Pad the dataset
-    future_timestamps = [last_timestamp + timedelta(hours=i) for i in range(1, steps_needed + 1)]
+    future_timestamps = [
+        last_timestamp + timedelta(hours=i) for i in range(1, steps_needed + 1)
+    ]
     for ts in future_timestamps:
         # Append future timestamps with default or NaN values for other columns
-        new_row = pd.DataFrame({'time': [ts]}, index=[0])  # Create a DataFrame for the new row
-        historical_data = pd.concat([historical_data, new_row], ignore_index=True)    
+        new_row = pd.DataFrame(
+            {"time": [ts]}, index=[0]
+        )  # Create a DataFrame for the new row
+        historical_data = pd.concat([historical_data, new_row], ignore_index=True)
     features = historical_data.drop(
         columns=[
             "time",
@@ -159,18 +160,17 @@ def predict_values(
         ]
     )
     historical_data = historical_data.reset_index(drop=True)
-    features = features.reset_index(drop = True)
+    features = features.reset_index(drop=True)
     for i in historical_data[historical_data["temp"].isnull()].index:
         for target in ["temp", "wind_spd", "wind_dir", "solar"]:
-            model_name = (f"{model_type}_target_{target}.joblib")
+            model_name = f"{model_type}_target_{target}.joblib"
             model_path = os.path.join(models_directory, model_name)
             model = load(model_path)
             feature_vector = features.loc[[i - 1]]
             value_pred = model.predict(feature_vector)[0]
             historical_data.at[i, target] = value_pred
             features.at[i, target] = value_pred
-            update_features(features,historical_data)
-
+            update_features(features, historical_data)
 
     # put all of the temp values in a list
     pred_values = {}
@@ -197,6 +197,3 @@ real_values = result[1]
 pred_values = result[2]
 print(real_values["temp"])
 print(pred_values["temp"])
-
-
-
