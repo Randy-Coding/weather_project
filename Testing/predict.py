@@ -63,10 +63,8 @@ def preprocess_data(data_path):
     weather_for_printing = weather_for_printing[
         (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
     ]
-    # make weather_for_printing equal the values after the 99th index
-    #make weather equal only to values after row 40
-    weather = weather[40:]
 
+    weather = weather[40:]
 
     actual_values_dict = {}
 
@@ -77,8 +75,6 @@ def preprocess_data(data_path):
 
     # reset index
     weather = weather.reset_index(drop=True)
-    for target in ["temp", "wind_spd", "wind_dir", "solar"]:
-        weather[target].iloc[104:] = np.NaN
     return weather, actual_values_dict
 
 
@@ -128,13 +124,31 @@ def predict_values(
     model_type="CatBoost",
 ):
 
+
     result = preprocess_data(csv_path)
     historical_data = result[0]
     real_values = result[1]
+
+
     historical_data = historical_data[
         (historical_data["time"].dt.minute == 0)
         & (historical_data["time"].dt.second == 0)
     ]
+    
+    last_date = historical_data['time'].max().date()
+    final_datetime = datetime.strptime(f"{last_date} 23:45", '%Y-%m-%d %H:%M')
+
+    # Calculate the number of 1-hour steps needed to reach final_time from the last timestamp
+    last_timestamp = historical_data['time'].max()
+    delta = final_datetime - last_timestamp
+    steps_needed = int(delta.total_seconds() / 3600)  # 3600 seconds in 1 hour
+
+    # Pad the dataset
+    future_timestamps = [last_timestamp + timedelta(hours=i) for i in range(1, steps_needed + 1)]
+    for ts in future_timestamps:
+        # Append future timestamps with default or NaN values for other columns
+        new_row = pd.DataFrame({'time': [ts]}, index=[0])  # Create a DataFrame for the new row
+        historical_data = pd.concat([historical_data, new_row], ignore_index=True)    
     features = historical_data.drop(
         columns=[
             "time",
@@ -152,11 +166,11 @@ def predict_values(
             model_path = os.path.join(models_directory, model_name)
             model = load(model_path)
             feature_vector = features.loc[[i - 1]]
-            if pd.isnull(feature_vector["temp_15min_ago"].iloc[0]):
-                update_features(features,historical_data)
             value_pred = model.predict(feature_vector)[0]
             historical_data.at[i, target] = value_pred
             features.at[i, target] = value_pred
+            update_features(features,historical_data)
+
 
     # put all of the temp values in a list
     pred_values = {}

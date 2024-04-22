@@ -36,30 +36,20 @@ def preprocess_data(data_path):
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
     lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
-    lagged_cols = []
     for lag in lags:
-        for col in ["wind_dir", "temp", "wind_spd", "solar"]:
-            # Shift the column and rename appropriately
-            shifted_col = weather[col].shift(lag // 15).rename(f"{col}_{lag}min_ago")
-            lagged_cols.append(shifted_col)
-    # Concatenate all lagged columns alongside the original DataFrame
-    weather = pd.concat([weather] + lagged_cols, axis=1)
+        shifted_col = weather["temp"].shift(lag // 15).rename(f"temp_{lag}min_ago")
+        weather = pd.concat([weather, shifted_col], axis=1)
     weather["temp_rolling_mean"] = round(weather["temp"].rolling(window=4).mean(), 2)
     weather["temp_rolling_std"] = round(weather["temp"].rolling(window=4).std(), 2)
     weather["hour_sin"] = np.sin(2 * np.pi * weather["time"].dt.hour / 24)
     weather["hour_cos"] = np.cos(2 * np.pi * weather["time"].dt.hour / 24)
     weather["month_sin"] = np.sin(2 * np.pi * weather["time"].dt.month / 12)
     weather["month_cos"] = np.cos(2 * np.pi * weather["time"].dt.month / 12)
-    weather["wind_dir_sin"] = np.sin(np.radians(weather["wind_dir"]))
-    weather["wind_dir_cos"] = np.cos(np.radians(weather["wind_dir"]))
     weather["year"] = weather["time"].dt.year
     weather["month"] = weather["time"].dt.month
     weather["day"] = weather["time"].dt.day
     weather["hour"] = weather["time"].dt.hour
     weather["target_temp"] = weather["temp"].shift(-4)
-    weather["target_wind_spd"] = weather["wind_spd"].shift(-4)
-    weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
-    weather["target_solar"] = weather["solar"].shift(-4)
     weather = weather.dropna()
     return_val = weather.copy()
     return return_val
@@ -206,9 +196,4 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
 # make a gradient boosting model with some parameters
 test_model("XGBoost", "Training_input.csv", "target_temp")
 test_model("CatBoost", "Training_input.csv", "target_temp")
-test_model("XGBoost", "Training_input.csv", "target_wind_spd")
-test_model("CatBoost", "Training_input.csv", "target_wind_spd")
-test_model("XGBoost", "Training_input.csv", "target_wind_dir")
-test_model("CatBoost", "Training_input.csv", "target_wind_dir")
-test_model("XGBoost", "Training_input.csv", "target_solar")
-test_model("CatBoost", "Training_input.csv", "target_solar")
+
