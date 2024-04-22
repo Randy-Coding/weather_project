@@ -7,7 +7,8 @@ from sklearn.model_selection import cross_val_score
 import os
 from joblib import dump
 import time
-import psutil  
+import psutil
+
 # import time series
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -52,10 +53,9 @@ def preprocess_data(data_path):
     return return_val
 
 
-
 def test_model(model_name: str, data_path: str, target_variable: str, cv: int = 5):
     weather_data = preprocess_data(data_path)
-    weather_data.sort_values('time', inplace=True)  # Ensure data is sorted by time
+    weather_data.sort_values("time", inplace=True)  # Ensure data is sorted by time
 
     # Calculate the split index for an 80/20 split
     split_index = int(len(weather_data) * 0.8)
@@ -72,7 +72,7 @@ def test_model(model_name: str, data_path: str, target_variable: str, cv: int = 
         "LinearRegression": LinearRegression(),
         "LassoRegression": Lasso(),
         "RidgeRegression": Ridge(),
-        "ElasticNet": ElasticNet()
+        "ElasticNet": ElasticNet(),
     }.get(model_name)
 
     # Initialize time series cross-validation
@@ -102,7 +102,9 @@ def test_model(model_name: str, data_path: str, target_variable: str, cv: int = 
     final_memory_use = process.memory_info().rss
 
     # Save the trained model
-    model_save_path = os.path.join("Model_Directory", f"{model_name}_{target_variable}.joblib")
+    model_save_path = os.path.join(
+        "Model_Directory", f"{model_name}_{target_variable}.joblib"
+    )
     dump(model, model_save_path)
 
     # Predictions on test data and calculate MAE
@@ -110,27 +112,20 @@ def test_model(model_name: str, data_path: str, target_variable: str, cv: int = 
     final_mae = mean_absolute_error(y_test, predictions)
 
     # Plot the predictions against the actual values
-    plt.figure(figsize=(10, 6))
-    plt.scatter(y_test, predictions, alpha=0.5)
-    plt.xlabel('Actual Values')
-    plt.ylabel('Predicted Values')
-    plt.title(f'Prediction vs Actual Value Scatter Plot for {model_name}')
-    plt.grid(True)
-    plt.show()
 
-    print(f"Model saved to {model_save_path}")
     print(f"Training and prediction time: {end_time - start_time:.2f} seconds")
-    print(f"Average Mean Absolute Error (MAE) across folds: {sum(maes) / len(maes):.2f}")
+    print(
+        f"Average Mean Absolute Error (MAE) across folds: {sum(maes) / len(maes):.2f}"
+    )
     print(f"Final Mean Absolute Error (MAE) on test data: {final_mae:.2f}")
-    print(f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB")
-
-
-
+    print(
+        f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB"
+    )
+    print(f"Model saved to {model_save_path}\n\n\n\n")
 
 
 # create a ridge regression model
+test_model("ElasticNet", "Training_input.csv", "target_temp")
 test_model("LinearRegression", "Training_input.csv", "target_temp")
 test_model("LassoRegression", "Training_input.csv", "target_temp")
 test_model("RidgeRegression", "Training_input.csv", "target_temp")
-test_model("ElasticNet", "Training_input.csv", "target_temp")
-

@@ -32,168 +32,92 @@ def preprocess_data(data_path):
         },
         inplace=True,
     )
+
+    weather = pd.read_csv(data_path)
+    weather["solar"] = weather["solar"].interpolate(method="linear")
+    weather["temp"] = weather["temp"].interpolate(method="linear")
+    weather["wind_spd"] = weather["wind_spd"].interpolate(method="linear")
+    weather["wind_dir"] = weather["wind_dir"].interpolate(method="linear")
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
     lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
-    lagged_cols = []
     for lag in lags:
-        for col in ["wind_dir", "temp", "wind_spd", "solar"]:
-            # Shift the column and rename appropriately
-            shifted_col = weather[col].shift(lag // 15).rename(f"{col}_{lag}min_ago")
-            lagged_cols.append(shifted_col)
-    # Concatenate all lagged columns alongside the original DataFrame
-    weather = pd.concat([weather] + lagged_cols, axis=1)
+        shifted_col = weather["temp"].shift(lag // 15).rename(f"temp_{lag}min_ago")
+        weather = pd.concat([weather, shifted_col], axis=1)
     weather["temp_rolling_mean"] = round(weather["temp"].rolling(window=4).mean(), 2)
     weather["temp_rolling_std"] = round(weather["temp"].rolling(window=4).std(), 2)
     weather["hour_sin"] = np.sin(2 * np.pi * weather["time"].dt.hour / 24)
     weather["hour_cos"] = np.cos(2 * np.pi * weather["time"].dt.hour / 24)
     weather["month_sin"] = np.sin(2 * np.pi * weather["time"].dt.month / 12)
     weather["month_cos"] = np.cos(2 * np.pi * weather["time"].dt.month / 12)
-    weather["wind_dir_sin"] = np.sin(np.radians(weather["wind_dir"]))
-    weather["wind_dir_cos"] = np.cos(np.radians(weather["wind_dir"]))
     weather["year"] = weather["time"].dt.year
     weather["month"] = weather["time"].dt.month
     weather["day"] = weather["time"].dt.day
     weather["hour"] = weather["time"].dt.hour
     weather["target_temp"] = weather["temp"].shift(-4)
-    weather["target_wind_spd"] = weather["wind_spd"].shift(-4)
-    weather["target_wind_dir"] = weather["wind_dir"].shift(-4)
-    weather["target_solar"] = weather["solar"].shift(-4)
-    weather_for_printing = weather.iloc[96:]
-    weather_for_printing = weather_for_printing[
-        (weather["time"].dt.minute == 0) & (weather["time"].dt.second == 0)
+    weather = weather.dropna()
+    return_val = weather.copy()
+    return return_val
+
+
+def predict_temp(model_name, data_path, target_variable):
+    # Load and preprocess data
+    data = preprocess_data(data_path)
+
+    # Define the training features explicitly (Example based on your provided features)
+    training_features = [
+        "temp",
+        "wind_spd",
+        "wind_dir",
+        "solar",
+        "temp_15min_ago",
+        "temp_30min_ago",
+        "temp_45min_ago",
+        "temp_60min_ago",
+        # Continue listing all features used during training except the target variable...
+        "hour_sin",
+        "hour_cos",
+        "month_sin",
+        "month_cos",
+        "year",
+        "month",
+        "day",
+        "hour",
     ]
 
-    weather = weather[40:]
+    # Ensure the DataFrame for prediction only contains the features used during training
+    if target_variable in data.columns:
+        data = data.drop(columns=[target_variable])
+    last_row = data[training_features].iloc[-1:]  # Select only training features
 
-    actual_values_dict = {}
-
-    for target in ["temp", "wind_spd", "wind_dir", "solar"]:
-        # Dynamically create the list name
-        # Assign the target column values to a list and store it in the dictionary
-        actual_values_dict[target] = weather_for_printing[target].tolist()
-
-    # reset index
-    weather = weather.reset_index(drop=True)
-    return weather, actual_values_dict
-
-
-def update_features(features, historical_data):
-    """
-    Updates the feature set for the entire dataset with the latest historical values.
-
-    Parameters:
-    - features: DataFrame containing the feature set.
-    - historical_data: DataFrame containing the historical data including latest predictions.
-    """
-    columns = ["temp", "wind_spd", "wind_dir", "solar"]
-    lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
-
-    # Update lagged features for the entire dataset
-    for lag in lags:
-        for col in columns:
-            # Calculate the shift amount based on the time interval (assuming 15min intervals)
-            shift_amount = lag // 15
-            features[f"{col}_{lag}min_ago"] = features[col].shift(shift_amount)
-
-    # Update rolling features for the entire dataset
-    features["temp_rolling_mean"] = round(features["temp"].rolling(window=4).mean(), 2)
-    features["temp_rolling_std"] = round(features["temp"].rolling(window=4).std(), 2)
-
-    # Update trigonometric transformations for hour and month
-    features["hour_sin"] = np.sin(2 * np.pi * historical_data["time"].dt.hour / 24)
-    features["hour_cos"] = np.cos(2 * np.pi * historical_data["time"].dt.hour / 24)
-    features["month_sin"] = np.sin(2 * np.pi * historical_data["time"].dt.month / 12)
-    features["month_cos"] = np.cos(2 * np.pi * historical_data["time"].dt.month / 12)
-
-    # Update wind direction transformations
-    features["wind_dir_sin"] = np.sin(np.radians(features["wind_dir"]))
-    features["wind_dir_cos"] = np.cos(np.radians(features["wind_dir"]))
-
-    # Update time components
-    features["year"] = historical_data["time"].dt.year
-    features["month"] = historical_data["time"].dt.month
-    features["day"] = historical_data["time"].dt.day
-    features["hour"] = historical_data["time"].dt.hour
-
-
-def predict_values(
-    models_directory="Model_Directory",
-    csv_path="historical_data.csv",
-    model_type="CatBoost",
-):
-
-    result = preprocess_data(csv_path)
-    historical_data = result[0]
-    real_values = result[1]
-
-    historical_data = historical_data[
-        (historical_data["time"].dt.minute == 0)
-        & (historical_data["time"].dt.second == 0)
-    ]
-
-    last_date = historical_data["time"].max().date()
-    final_datetime = datetime.strptime(f"{last_date} 23:45", "%Y-%m-%d %H:%M")
-
-    # Calculate the number of 1-hour steps needed to reach final_time from the last timestamp
-    last_timestamp = historical_data["time"].max()
-    delta = final_datetime - last_timestamp
-    steps_needed = int(delta.total_seconds() / 3600)  # 3600 seconds in 1 hour
-
-    # Pad the dataset
-    future_timestamps = [
-        last_timestamp + timedelta(hours=i) for i in range(1, steps_needed + 1)
-    ]
-    for ts in future_timestamps:
-        # Append future timestamps with default or NaN values for other columns
-        new_row = pd.DataFrame(
-            {"time": [ts]}, index=[0]
-        )  # Create a DataFrame for the new row
-        historical_data = pd.concat([historical_data, new_row], ignore_index=True)
-    features = historical_data.drop(
-        columns=[
-            "time",
-            "target_temp",
-            "target_wind_spd",
-            "target_wind_dir",
-            "target_solar",
-        ]
+    # Load the trained model
+    model_path = os.path.join(
+        "Model_Directory", f"{model_name}_{target_variable}.joblib"
     )
-    historical_data = historical_data.reset_index(drop=True)
-    features = features.reset_index(drop=True)
-    for i in historical_data[historical_data["temp"].isnull()].index:
-        for target in ["temp", "wind_spd", "wind_dir", "solar"]:
-            model_name = f"{model_type}_target_{target}.joblib"
-            model_path = os.path.join(models_directory, model_name)
-            model = load(model_path)
-            feature_vector = features.loc[[i - 1]]
-            value_pred = model.predict(feature_vector)[0]
-            historical_data.at[i, target] = value_pred
-            features.at[i, target] = value_pred
-            update_features(features, historical_data)
+    model = load(model_path)
 
-    # put all of the temp values in a list
-    pred_values = {}
-    historical_data = historical_data.iloc[14:]
-    for value in ["temp", "wind_spd", "wind_dir", "solar"]:
-        pred_values[value] = historical_data[value].tolist()
-    return historical_data, real_values, pred_values
+    # Predict temperature
+    prediction = model.predict(last_row)
+
+    return prediction[0]  # Return the predicted temperature
 
 
 def predict_master(
-    models_directory="Model_Directory", csv_path="Predict_Here/historical_data.csv"
+    model_name, models_directory="Model_Directory", csv_path="historical_data.csv"
 ):
-
-    model_name = os.path.join(f"CatBoost")
-    return predict_values(models_directory, csv_path, model_name)
+    predicted_temperature = predict_temp(model_name, csv_path, "target_temp")
+    return predicted_temperature
 
 
 # Example usage
 warnings.filterwarnings("ignore")
 historical_data = "historical_data.csv"
 
-result = predict_master("Model_Directory", historical_data)
-real_values = result[1]
-pred_values = result[2]
-print(real_values["temp"])
-print(pred_values["temp"])
+predicted_temp_catboost = predict_master("CatBoost")
+print(f"Predicted temperature using CatBoost is: {predicted_temp_catboost} °F")
+
+predicted_temp_xgboost = predict_master("XGBoost")
+print(f"Predicted temperature using XGBoost is: {predicted_temp_xgboost} °F")
+
+predicted_temp_randomforest = predict_master("RandomForest")
+print(f"Predicted temperature using RandomForest is: {predicted_temp_randomforest} °F")

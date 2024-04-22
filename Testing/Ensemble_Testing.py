@@ -16,6 +16,8 @@ from catboost import CatBoostRegressor
 from sklearn.model_selection import cross_val_score
 import os
 from sklearn.model_selection import ParameterGrid
+import psutil
+import time
 
 
 def preprocess_data(data_path):
@@ -56,134 +58,73 @@ def preprocess_data(data_path):
 
 
 def test_model(model_name: str, data_path, target_variable: str, cv=5):
-
     weather_data = preprocess_data(data_path)
+    weather_data.sort_values("time", inplace=True)  # Ensure data is sorted by time
 
     # Calculate the split index for an 80/20 split
     split_index = int(len(weather_data) * 0.8)
-
-    # Split the data into training and testing sets based on the calculated index
     training_data = weather_data.iloc[:split_index]
     testing_data = weather_data.iloc[split_index:]
 
-    # Specify target and features for both training and testing sets
-    X_train = training_data.drop(
-        columns=[
-            "target_temp",
-            "target_wind_spd",
-            "target_wind_dir",
-            "target_solar",
-            "time",
-        ]
-    )
+    # Define features and target for both training and testing sets
+    X_train = training_data.drop(columns=["target_temp", "time"])
     y_train = training_data[target_variable]
-    X_test = testing_data.drop(
-        columns=[
-            "target_temp",
-            "target_wind_spd",
-            "target_wind_dir",
-            "target_solar",
-            "time",
-        ]
-    )
+    X_test = testing_data.drop(columns=["target_temp", "time"])
     y_test = testing_data[target_variable]
 
     if model_name == "CatBoost":
-        param_grid = {
-            "n_estimators": [100, 200, 300],
-            "learning_rate": [0.01, 0.05, 0.1],
-            "depth": [4, 6, 8],
-        }
-        model = CatBoostRegressor(random_state=42, verbose=False)
+        # Use pre-determined optimal parameters
+        best_params = {"depth": 8, "learning_rate": 0.1, "n_estimators": 300}
+        best_model = CatBoostRegressor(**best_params, random_state=42, verbose=False)
     elif model_name == "XGBoost":
-        # Define the parameter grid for XGBoost
-        param_grid = {
-            "n_estimators": [100, 500, 1000],
-            "learning_rate": [0.01, 0.05, 0.1],
-            "max_depth": [3, 4, 5],
-            "subsample": [0.7, 0.8, 0.9],
-            "colsample_bytree": [0.7, 0.8, 0.9],
+        best_params = {
+            "colsample_bytree": 0.8,
+            "learning_rate": 0.1,
+            "max_depth": 5,
+            "n_estimators": 1000,
+            "subsample": 0.9,
+            "verbosity": 0,
+            "random_state": 42,
+            "early_stopping_rounds": 10,  # Set in the constructor
         }
-        model = XGBRegressor(random_state=42, verbosity=0, early_stopping_rounds=10)
-
-        # Split the training data for early stopping validation
-        X_train_part, X_val, y_train_part, y_val = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=42
-        )
-
-        # Initialize variables to find the best model and parameters
-        lowest_rmse = np.inf
-        best_params = {}
-
-        # Iterate over all combinations of parameters
-        for params in ParameterGrid(param_grid):
-            temp_model = model.set_params(**params)  # Set parameters
-            temp_model.fit(
-                X_train_part,
-                y_train_part,
-                eval_set=[(X_val, y_val)],
-                verbose=False,
-            )
-
-            predictions = temp_model.predict(X_val)
-            rmse = np.sqrt(mean_squared_error(y_val, predictions))
-
-            if rmse < lowest_rmse:
-                lowest_rmse = rmse
-                best_model = temp_model
-                best_params = params
-            print(
-                f"Best parameters for XGBoost: {best_params} with RMSE: {lowest_rmse}"
-            )
+        best_model = XGBRegressor(**best_params)
+    elif model_name == "RandomForest":
+        # Default parameters for RandomForestRegressor, adjust as necessary
+        best_params = {
+            "n_estimators": 100,
+            "max_depth": None,  # None means the nodes are expanded until all leaves are pure or until all leaves contain less than min_samples_split samples
+            "random_state": 42,
+        }
+        best_model = RandomForestRegressor(**best_params)
     else:
-        # Handle other models or throw an error
         raise ValueError("Unsupported model name")
 
-    # For CatBoost and other models without early stopping, use GridSearchCV as before
-    if model_name != "XGBoost":
-        grid_search = GridSearchCV(
-            estimator=model,
-            param_grid=param_grid,
-            cv=TimeSeriesSplit(n_splits=5),
-            scoring="neg_mean_squared_error",
-            verbose=2,
-        )
-        grid_search.fit(X_train, y_train)
-        print("Best parameters found:", grid_search.best_params_)
-        best_model = grid_search.best_estimator_
-        # Predict and evaluate using best_model
-
     model = best_model
+    print("Training now")
+    start_time = time.time()
+    process = psutil.Process(os.getpid())
+    initial_memory_use = process.memory_info().rss
+
+    # Fit the model and include an evaluation set if it's XGBoost
+    if model_name == "XGBoost":
+        model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    else:
+        model.fit(X_train, y_train)
+
+    end_time = time.time()
+    final_memory_use = process.memory_info().rss
     y_pred = model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
 
-    print(f"\nTest Set Results for: {model_name}")
     print(f"Mean Absolute Error (MAE): {mae}")
     print(f"Mean Squared Error (MSE): {mse}")
     print(f"Root Mean Squared Error (RMSE): {rmse}")
-
-    if model_name == "XGBoost":
-        # Reconfigure the model without early_stopping_rounds for final full training
-        model.set_params(early_stopping_rounds=None)
-    # Training the model on the full training data and evaluate on the test set
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-
-    print(f"\n\nTest Set Results for: {model_name}")
-    mae = mean_absolute_error(y_test, y_pred)  # Calculate MAE
-    mse = mean_squared_error(y_test, y_pred)  # Calculate MSE
-    rmse = np.sqrt(mse)  # Calculate RMSE
-    print(f"Mean Absolute Error (MAE): {mae}")
-    print(f"Mean Squared Error (MSE): {mse}")
-    print(f"Root Mean Squared Error (RMSE): {rmse}")
-
-    full_data = pd.concat([X_train, X_test])
-    full_targets = pd.concat([y_train, y_test])
-
-    # Train the model on the full dataset
-    model.fit(full_data, full_targets)
+    print(
+        f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB"
+    )
+    print(f"Training and prediction time: {end_time - start_time:.2f} seconds")
 
     # Save the fully trained model
     model_save_path = os.path.join(
@@ -192,8 +133,17 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     dump(model, model_save_path)
     print(f"Model saved to {model_save_path}")
 
+    # Plot predictions against actual values
+    plt.figure(figsize=(10, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5)
+    plt.xlabel("Actual Values")
+    plt.ylabel("Predicted Values")
+    plt.title(f"Prediction vs Actual Value Scatter Plot for {model_name}")
+    plt.grid(True)
+    plt.show()
+
 
 # make a gradient boosting model with some parameters
+test_model("RandomForest", "Training_input.csv", "target_temp")
 test_model("XGBoost", "Training_input.csv", "target_temp")
 test_model("CatBoost", "Training_input.csv", "target_temp")
-
