@@ -60,58 +60,45 @@ def preprocess_data(data_path):
     return return_val
 
 
-def predict_temp(model_name, data_path, target_variable):
-    # Load and preprocess data
-    data = preprocess_data(data_path)
-
-    # Define the training features explicitly (Example based on your provided features)
-    training_features = [
-        "temp",
-        "wind_spd",
-        "wind_dir",
-        "solar",
-        "temp_15min_ago",
-        "temp_30min_ago",
-        "temp_45min_ago",
-        "temp_60min_ago",
-        # Continue listing all features used during training except the target variable...
-        "hour_sin",
-        "hour_cos",
-        "month_sin",
-        "month_cos",
-        "year",
-        "month",
-        "day",
-        "hour",
-    ]
-
-    # Ensure the DataFrame for prediction only contains the features used during training
-    if target_variable in data.columns:
-        data = data.drop(columns=[target_variable])
-    last_row = data[training_features].iloc[-1:]  # Select only training features
-
-    # Load the trained model
-    model_path = os.path.join(
-        "Model_Directory", f"{model_name}_{target_variable}.joblib"
-    )
+def predict_temp(model_name, temp_now, wind_spd_now, wind_dir_now, solar_now, temp_1h_ago):
+    # Load the model
+    model_path = os.path.join("Model_Directory", f"{model_name}_target_temp.joblib")
     model = load(model_path)
-
+    
+    # Create a DataFrame with the input data
+    # Assuming the same transformations (e.g., temperature conversion) were applied as in training
+    input_data = {
+        "temp": [round((temp_now * 9 / 5 + 32), 2)],  # Convert to Fahrenheit if training was in Fahrenheit
+        "wind_spd": [wind_spd_now],
+        "wind_dir": [wind_dir_now],
+        "solar": [solar_now],
+        "temp_1h_ago": [round((temp_1h_ago * 9 / 5 + 32), 2)]  # Convert to Fahrenheit if needed
+    }
+    input_df = pd.DataFrame(input_data)
+    
     # Predict temperature
-    prediction = model.predict(last_row)
-
+    prediction = model.predict(input_df)
     return prediction[0]  # Return the predicted temperature
+    
 
 
 def predict_master(
-    model_name, models_directory="Model_Directory", csv_path="historical_data.csv"
+    input_name
 ):
-    predicted_temperature = predict_temp(model_name, csv_path, "target_temp")
-    return predicted_temperature
+    predicted_temp = predict_temp(
+    model_name=input_name,
+    temp_now=7.1,  # Current temperature
+    wind_spd_now=3.6,  # Current wind speed
+    wind_dir_now=288.7,  # Current wind direction
+    solar_now=451.2,  # Current solar radiation
+    temp_1h_ago=7.1  # Temperature 1 hour ago
+)
+    return predicted_temp
+    
 
 
 # Example usage
-warnings.filterwarnings("ignore")
-historical_data = "historical_data.csv"
+
 
 predicted_temp_catboost = predict_master("CatBoost")
 print(f"Predicted temperature using CatBoost is: {predicted_temp_catboost} °F")
@@ -119,5 +106,15 @@ print(f"Predicted temperature using CatBoost is: {predicted_temp_catboost} °F")
 predicted_temp_xgboost = predict_master("XGBoost")
 print(f"Predicted temperature using XGBoost is: {predicted_temp_xgboost} °F")
 
-predicted_temp_randomforest = predict_master("RandomForest")
-print(f"Predicted temperature using RandomForest is: {predicted_temp_randomforest} °F")
+predicted_temp_LassoRegression = predict_master("LassoRegression")
+print(f"Predicted temperature using LassoRegression is: {predicted_temp_LassoRegression} °F")
+
+predicted_temp_LinearRegression = predict_master("LinearRegression")
+print(f"Predicted temperature using LinearRegression is: {predicted_temp_LinearRegression} °F")
+
+predicted_temp_RidgeRegression = predict_master("RidgeRegression")
+print(f"Predicted temperature using RidgeRegression is: {predicted_temp_RidgeRegression} °F")
+
+predicted_temp_ElasticNet = predict_master("ElasticNet")
+print(f"Predicted temperature using ElasticNet is: {predicted_temp_ElasticNet} °F")
+

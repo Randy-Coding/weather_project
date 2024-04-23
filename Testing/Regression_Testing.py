@@ -33,20 +33,7 @@ def preprocess_data(data_path):
     weather["wind_dir"] = weather["wind_dir"].interpolate(method="linear")
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
-    lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
-    for lag in lags:
-        shifted_col = weather["temp"].shift(lag // 15).rename(f"temp_{lag}min_ago")
-        weather = pd.concat([weather, shifted_col], axis=1)
-    weather["temp_rolling_mean"] = round(weather["temp"].rolling(window=4).mean(), 2)
-    weather["temp_rolling_std"] = round(weather["temp"].rolling(window=4).std(), 2)
-    weather["hour_sin"] = np.sin(2 * np.pi * weather["time"].dt.hour / 24)
-    weather["hour_cos"] = np.cos(2 * np.pi * weather["time"].dt.hour / 24)
-    weather["month_sin"] = np.sin(2 * np.pi * weather["time"].dt.month / 12)
-    weather["month_cos"] = np.cos(2 * np.pi * weather["time"].dt.month / 12)
-    weather["year"] = weather["time"].dt.year
-    weather["month"] = weather["time"].dt.month
-    weather["day"] = weather["time"].dt.day
-    weather["hour"] = weather["time"].dt.hour
+    weather["temp_1h_ago"] = weather["temp"].shift(4)
     weather["target_temp"] = weather["temp"].shift(-4)
     weather = weather.dropna()
     return_val = weather.copy()
