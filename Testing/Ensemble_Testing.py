@@ -16,8 +16,8 @@ from catboost import CatBoostRegressor
 from sklearn.model_selection import cross_val_score
 import os
 from sklearn.model_selection import ParameterGrid
-import psutil
 import time
+import psutil
 
 
 def preprocess_data(data_path):
@@ -58,22 +58,27 @@ def preprocess_data(data_path):
 
 
 def test_model(model_name: str, data_path, target_variable: str, cv=5):
-    weather_data = preprocess_data(data_path)
-    weather_data.sort_values("time", inplace=True)  # Ensure data is sorted by time
+    data = preprocess_data(data_path)
 
-    # Calculate the split index for an 80/20 split
-    split_index = int(len(weather_data) * 0.8)
-    training_data = weather_data.iloc[:split_index]
-    testing_data = weather_data.iloc[split_index:]
+    train_ratio = 0.6
+    validation_ratio = 0.2
+    test_ratio = 0.2  # Ensures that all proportions add up to 1
 
-    # Define features and target for both training and testing sets
-    X_train = training_data.drop(columns=["target_temp", "time"])
-    y_train = training_data[target_variable]
-    X_test = testing_data.drop(columns=["target_temp", "time"])
-    y_test = testing_data[target_variable]
+    # Calculate the indices for splitting
+    total_records = len(data)
+    train_index = int(total_records * train_ratio)
+    validation_index = train_index + int(total_records * validation_ratio)
 
+    # Split the data respecting the time series order
+    X_train = data.iloc[:train_index].drop(columns=['target_temp', 'time'])
+    y_train = data.iloc[:train_index]['target_temp']
+    X_val = data.iloc[train_index:validation_index].drop(columns=['target_temp', 'time'])
+    y_val = data.iloc[train_index:validation_index]['target_temp']
+    X_test = data.iloc[validation_index:].drop(columns=['target_temp', 'time'])
+    y_test = data.iloc[validation_index:]['target_temp']
+
+    # Handle different model types
     if model_name == "CatBoost":
-        # Use pre-determined optimal parameters
         best_params = {"depth": 8, "learning_rate": 0.1, "n_estimators": 300}
         best_model = CatBoostRegressor(**best_params, random_state=42, verbose=False)
     elif model_name == "XGBoost":
@@ -85,17 +90,9 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
             "subsample": 0.9,
             "verbosity": 0,
             "random_state": 42,
-            "early_stopping_rounds": 10,  # Set in the constructor
+            "early_stopping_rounds": 10,
         }
-        best_model = XGBRegressor(**best_params)
-    elif model_name == "RandomForest":
-        # Default parameters for RandomForestRegressor, adjust as necessary
-        best_params = {
-            "n_estimators": 100,
-            "max_depth": None,  # None means the nodes are expanded until all leaves are pure or until all leaves contain less than min_samples_split samples
-            "random_state": 42,
-        }
-        best_model = RandomForestRegressor(**best_params)
+        best_model = XGBRegressor(**best_params) 
     else:
         raise ValueError("Unsupported model name")
 
@@ -105,9 +102,12 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     process = psutil.Process(os.getpid())
     initial_memory_use = process.memory_info().rss
 
-    # Fit the model and include an evaluation set if it's XGBoost
-    if model_name == "XGBoost":
-        model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    # Fit the model
+    if (model_name == "XGBoost") :
+        model.fit(
+        X_train, y_train, 
+        eval_set=[(X_val, y_val)], 
+        verbose=False)
     else:
         model.fit(X_train, y_train)
 
@@ -121,9 +121,7 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     print(f"Mean Absolute Error (MAE): {mae}")
     print(f"Mean Squared Error (MSE): {mse}")
     print(f"Root Mean Squared Error (RMSE): {rmse}")
-    print(
-        f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB"
-    )
+    print(f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB")
     print(f"Training and prediction time: {end_time - start_time:.2f} seconds")
 
     # Save the fully trained model
@@ -133,17 +131,8 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     dump(model, model_save_path)
     print(f"Model saved to {model_save_path}")
 
-    # Plot predictions against actual values
-    plt.figure(figsize=(10, 6))
-    plt.scatter(y_test, y_pred, alpha=0.5)
-    plt.xlabel("Actual Values")
-    plt.ylabel("Predicted Values")
-    plt.title(f"Prediction vs Actual Value Scatter Plot for {model_name}")
-    plt.grid(True)
-    plt.show()
-
 
 # make a gradient boosting model with some parameters
-test_model("RandomForest", "Training_input.csv", "target_temp")
 test_model("XGBoost", "Training_input.csv", "target_temp")
 test_model("CatBoost", "Training_input.csv", "target_temp")
+
