@@ -32,12 +32,6 @@ def preprocess_data(data_path):
         },
         inplace=True,
     )
-
-    weather = pd.read_csv(data_path)
-    weather["solar"] = weather["solar"].interpolate(method="linear")
-    weather["temp"] = weather["temp"].interpolate(method="linear")
-    weather["wind_spd"] = weather["wind_spd"].interpolate(method="linear")
-    weather["wind_dir"] = weather["wind_dir"].interpolate(method="linear")
     weather["time"] = pd.to_datetime(weather["time"])
     weather["temp"] = round((weather["temp"] * 9 / 5 + 32), 2)
     lags = range(15, 601, 15)  # For example, every 15 minutes up to 10 hours
@@ -65,25 +59,14 @@ def predict_temp(model_name, data_path, target_variable):
     data = preprocess_data(data_path)
 
     # Define the training features explicitly (Example based on your provided features)
-    training_features = [
-        "temp",
-        "wind_spd",
-        "wind_dir",
-        "solar",
-        "temp_15min_ago",
-        "temp_30min_ago",
-        "temp_45min_ago",
-        "temp_60min_ago",
-        # Continue listing all features used during training except the target variable...
-        "hour_sin",
-        "hour_cos",
-        "month_sin",
-        "month_cos",
-        "year",
-        "month",
-        "day",
-        "hour",
-    ]
+    if "time" in data.columns:
+        data.drop(columns=["time"], inplace=True)
+
+    training_features = [col for col in data.columns if col != target_variable]
+
+    # Ensure the DataFrame for prediction only contains the features used during training
+    if target_variable in data.columns:
+        data.drop(columns=[target_variable], inplace=True)
 
     # Ensure the DataFrame for prediction only contains the features used during training
     if target_variable in data.columns:
@@ -113,6 +96,7 @@ def predict_master(
 warnings.filterwarnings("ignore")
 historical_data = "historical_data.csv"
 
+
 predicted_temp_catboost = predict_master("CatBoost")
 print(f"Predicted temperature using CatBoost is: {predicted_temp_catboost} °F")
 
@@ -121,3 +105,36 @@ print(f"Predicted temperature using XGBoost is: {predicted_temp_xgboost} °F")
 
 predicted_temp_randomforest = predict_master("RandomForest")
 print(f"Predicted temperature using RandomForest is: {predicted_temp_randomforest} °F")
+
+predicted_temp_gradientboosting = predict_master("GradientBoosting")
+print(
+    f"Predicted temperature using GradientBoosting is: {predicted_temp_gradientboosting} °F"
+)
+
+predicted_temp_linearregression = predict_master("LinearRegression")
+print(
+    f"Predicted temperature using LinearRegression is: {predicted_temp_linearregression} °F"
+)
+
+predicted_temp_lassoregression = predict_master("LassoRegression")
+print(
+    f"Predicted temperature using LassoRegression is: {predicted_temp_lassoregression} °F"
+)
+predicted_temp_ridgeregression = predict_master("RidgeRegression")
+print(
+    f"Predicted temperature using RidgeRegression is: {predicted_temp_ridgeregression} °F"
+)
+predicted_temp_elasticnet = predict_master("ElasticNet")
+print(f"Predicted temperature using ElasticNet is: {predicted_temp_elasticnet} °F")
+
+temps = [
+    predict_master("CatBoost"),
+    predict_master("XGBoost"),
+    predict_master("RandomForest"),
+    predict_master("GradientBoosting"),
+    predict_master("LinearRegression"),
+    predict_master("LassoRegression"),
+    predict_master("RidgeRegression"),
+    predict_master("ElasticNet"),
+]
+print("\n\n\n", temps)

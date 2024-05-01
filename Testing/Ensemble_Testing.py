@@ -70,12 +70,14 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     validation_index = train_index + int(total_records * validation_ratio)
 
     # Split the data respecting the time series order
-    X_train = data.iloc[:train_index].drop(columns=['target_temp', 'time'])
-    y_train = data.iloc[:train_index]['target_temp']
-    X_val = data.iloc[train_index:validation_index].drop(columns=['target_temp', 'time'])
-    y_val = data.iloc[train_index:validation_index]['target_temp']
-    X_test = data.iloc[validation_index:].drop(columns=['target_temp', 'time'])
-    y_test = data.iloc[validation_index:]['target_temp']
+    X_train = data.iloc[:train_index].drop(columns=["target_temp", "time"])
+    y_train = data.iloc[:train_index]["target_temp"]
+    X_val = data.iloc[train_index:validation_index].drop(
+        columns=["target_temp", "time"]
+    )
+    y_val = data.iloc[train_index:validation_index]["target_temp"]
+    X_test = data.iloc[validation_index:].drop(columns=["target_temp", "time"])
+    y_test = data.iloc[validation_index:]["target_temp"]
 
     # Handle different model types
     if model_name == "CatBoost":
@@ -92,7 +94,28 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
             "random_state": 42,
             "early_stopping_rounds": 10,
         }
-        best_model = XGBRegressor(**best_params) 
+        best_model = XGBRegressor(**best_params)
+    elif model_name == "RandomForest":
+        best_params = {
+            "n_estimators": 100,
+            "max_depth": None,  # No maximum depth to let the trees grow as much as they can
+            "min_samples_split": 2,
+            "min_samples_leaf": 1,
+            "max_features": "sqrt",  # Using sqrt(n_features)
+            "random_state": 42,
+        }
+        best_model = RandomForestRegressor(**best_params)
+    elif model_name == "GradientBoosting":
+        best_params = {
+            "n_estimators": 100,
+            "learning_rate": 0.1,
+            "max_depth": 3,  # Typical value for gradient boosting
+            "min_samples_split": 2,
+            "min_samples_leaf": 1,
+            "subsample": 1.0,  # Using no subsample, all samples are used for learning each tree.
+            "random_state": 42,
+        }
+        best_model = GradientBoostingRegressor(**best_params)
     else:
         raise ValueError("Unsupported model name")
 
@@ -103,11 +126,8 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     initial_memory_use = process.memory_info().rss
 
     # Fit the model
-    if (model_name == "XGBoost") :
-        model.fit(
-        X_train, y_train, 
-        eval_set=[(X_val, y_val)], 
-        verbose=False)
+    if model_name == "XGBoost":
+        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
     else:
         model.fit(X_train, y_train)
 
@@ -121,7 +141,9 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
     print(f"Mean Absolute Error (MAE): {mae}")
     print(f"Mean Squared Error (MSE): {mse}")
     print(f"Root Mean Squared Error (RMSE): {rmse}")
-    print(f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB")
+    print(
+        f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB"
+    )
     print(f"Training and prediction time: {end_time - start_time:.2f} seconds")
 
     # Save the fully trained model
@@ -133,6 +155,4 @@ def test_model(model_name: str, data_path, target_variable: str, cv=5):
 
 
 # make a gradient boosting model with some parameters
-test_model("XGBoost", "Training_input.csv", "target_temp")
-test_model("CatBoost", "Training_input.csv", "target_temp")
-
+test_model("GradientBoosting", "Training_Input.csv", "target_temp")

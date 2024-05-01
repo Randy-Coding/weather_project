@@ -122,10 +122,8 @@ def test_model(model_name: str, data_path: str, target_variable: str, cv: int = 
         f"Memory used for training: {(final_memory_use - initial_memory_use) / (1024 ** 2):.2f} MB"
     )
     print(f"Model saved to {model_save_path}\n\n\n\n")
+    # Plot predictions against actual values
 
 
 # create a ridge regression model
-test_model("ElasticNet", "Training_input.csv", "target_temp")
-test_model("LinearRegression", "Training_input.csv", "target_temp")
-test_model("LassoRegression", "Training_input.csv", "target_temp")
 test_model("RidgeRegression", "Training_input.csv", "target_temp")
